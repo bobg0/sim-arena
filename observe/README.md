@@ -64,11 +64,11 @@ The `/observe` component is between the simulated environment and the agent's de
 
 **Outputs:**
 
-1.  **To Omar (`/runner`):**
+1.  **To (`/runner`):**
     * The `obs` dictionary (`{"ready": ...}`) is returned to Omar's script. This is the "observation" the agent uses to make a decision.
-    * The `reward` integer (`0` or `1`) is returned to Omar's script, which he then logs in `runs/step.jsonl`.
+    * The `reward` integer (`0` or `1`) is returned to Omar's script, which he then logs somewhere.
 
-**Note that we don't direclty interact with the (`/actions`) or (`/ops`) components. Also do not read or create simulation custom resource definitions. Only read standard pods and deployments**
+**Note that this part doesn't directly interact with the (`/actions`) or (`/ops`) components. Also do not read or create simulation custom resource definitions. Only read standard pods and deployments**
 
 ---
 
