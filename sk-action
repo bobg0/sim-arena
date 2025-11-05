@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Tiny CLI for applying safe mutations to SimArena traces."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import sys
+from pathlib import Path
+from typing import Any, Iterable
+
+from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
+from env.actions.trace_io import load_trace, save_trace
+
+
+OPS = {
+    "bump_cpu_small": bump_cpu_small,
+    "bump_mem_small": bump_mem_small,
+    "scale_up_replicas": scale_up_replicas,
+}
+
+_MISSING = object()
+
+
+def _diff(before: Any, after: Any, path: list[Any] | None = None, out: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    if path is None:
+        path = []
+    if out is None:
+        out = []
+
+    if before is _MISSING:
+        out.append({"path": path, "before": None, "after": after})
+        return out
+    if after is _MISSING:
+        out.append({"path": path, "before": before, "after": None})
+        return out
+
+    if isinstance(before, dict) and isinstance(after, dict):
+        keys = set(before) | set(after)
+        for key in sorted(keys, key=lambda x: str(x)):
+            _diff(before.get(key, _MISSING), after.get(key, _MISSING), path + [key], out)
+        return out
+
+    if isinstance(before, list) and isinstance(after, list):
+        max_len = max(len(before), len(after))
+        for idx in range(max_len):
+            b = before[idx] if idx < len(before) else _MISSING
+            a = after[idx] if idx < len(after) else _MISSING
+            _diff(b, a, path + [idx], out)
+        return out
+
+    if before != after:
+        out.append({"path": path, "before": before, "after": after})
+    return out
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="sk-action")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    apply_parser = subparsers.add_parser("apply", help="Apply a safe mutation to a trace")
+    apply_parser.add_argument("--in", dest="in_path", required=True, help="Input MessagePack trace")
+    apply_parser.add_argument("--out", dest="out_path", required=True, help="Destination MessagePack trace")
+    apply_parser.add_argument("--deploy", required=True, help="Deployment name to mutate")
+    apply_parser.add_argument("--op", choices=sorted(OPS), required=True, help="Operation to run")
+    apply_parser.add_argument("--step", help="Override default CPU/memory step")
+    apply_parser.add_argument("--delta", type=int, help="Replica increment for scaling ops")
+
+    args = parser.parse_args(argv)
+
+    if args.command != "apply":
+        parser.error("Unknown command")
+
+    op_func = OPS[args.op]
+
+    kwargs: dict[str, Any] = {}
+    if args.step:
+        if args.op not in {"bump_cpu_small", "bump_mem_small"}:
+            parser.error("--step is only valid with bump_cpu_small or bump_mem_small")
+        kwargs["step"] = args.step
+    if args.delta is not None:
+        if args.op != "scale_up_replicas":
+            parser.error("--delta is only valid with scale_up_replicas")
+        kwargs["delta"] = args.delta
+
+    trace = load_trace(args.in_path)
+    original = copy.deepcopy(trace)
+
+    try:
+        changed = op_func(trace, args.deploy, **kwargs)
+    except TypeError as exc:  # pragma: no cover - defensive guard
+        parser.error(str(exc))
+        return 2
+
+    output_path = Path(args.out_path)
+
+    if not changed:
+        save_trace(original, output_path)
+        print(json.dumps({"changed": False, "reason": "deployment not found"}, indent=2))
+        return 1
+
+    diff_entries = _diff(original, trace)
+    save_trace(trace, output_path)
+    print(json.dumps({"changed": True, "diff": diff_entries}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+
