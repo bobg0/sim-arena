@@ -1,12 +1,16 @@
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
+SIM_GROUP = "simkube.io"
+SIM_PLURAL = "simulations"
+TARGET_NAMESPACE = "test-ns"
+MIN_KUBECTL_VERSION = "1.20.0"
 
 def check_kube_api() -> bool:
     print("Checking Kubernetes API connectivity...")
     try:
         config.load_kube_config()
-        v1 = client.CoreV1Api()
+        v1 = client.CoreV1Api() # 
         v1.get_api_resources()
         print("Kubernetes API is reachable")
         return True
@@ -30,7 +34,16 @@ def check_namespace(namespace: str) -> bool:
             print(f"X Error checking namespace: {e}")
         return False
 
+def check_crd() -> bool:
+    crd_name = f"{SIM_PLURAL}.{SIM_GROUP}"
+    print(f"Checking for CRD '{crd_name}'...")
+    try:
+        apix = client.ApiextensionsV1Api()
+        apix.read_custom_resource_definition(crd_name)
+        print(f"✓ CRD '{crd_name}' is installed")
+        return True
+
 def main():
     check_kube_api()
     print("-"*20)
-    check_namespace("test-ns")
+    check_namespace(TARGET_NAMESPACE)
