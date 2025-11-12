@@ -2,7 +2,7 @@
 
 **Date**: Current  
 **Goal**: Get a single, reproducible agent step working end-to-end on a real cluster  
-**Status**: ~75% Complete - Diya's tasks complete, integration gaps remain for runner
+**Status**: ~80% Complete - Diya and Rui's tasks complete, Omar's runner needs helper functions
 
 ---
 
@@ -107,78 +107,31 @@
 
 ---
 
-### 4. Rui — Hooks & Preflight (ops/) ⚠️ **PARTIALLY COMPLETE**
+### 4. Rui — Hooks & Preflight (ops/) ✅ **COMPLETE**
 
 #### ✅ Completed:
 - ✅ Script `ops/preflight.py`:
   - ✅ `check_kube_api()` - Checks Kubernetes API connectivity
   - ✅ `check_namespace(namespace: str)` - Checks if namespace exists
-  - ✅ `check_crd()` - Checks if CRD is installed (function exists)
-  - ✅ `main()` function exists
+  - ✅ `check_crd()` - Checks if CRD is installed (with error handling)
+  - ✅ `main()` function calls all checks and returns proper exit codes
   - ✅ Helpful error messages
+  - ✅ CLI entry point with `if __name__ == "__main__"` block
 - ✅ Hooks runner `ops/hooks.py`:
   - ✅ `LocalHooks` class with `pre_start()` method
   - ✅ `delete_all_pods(namespace: str)` - Deletes all pods in namespace
   - ✅ Idempotent (handles 404 gracefully)
   - ✅ Uses kubeconfig from `~/.kube/config` with in-cluster fallback
-
-#### ❌ Missing:
-1. **Function Export**: `runner/one_step.py` expects `run_hooks(stage, namespace)` function
-   - **Actual**: `LocalHooks().pre_start(namespace)` (class method)
-   - **Fix**: Create wrapper function `run_hooks(stage: str, namespace: str) -> None`
-2. **Preflight CLI**: No executable entry point for `preflight.py`
-   - **Fix**: Add `if __name__ == "__main__"` block or create CLI script
-3. **CRD Check Integration**: `check_crd()` exists but not called in `main()`
-   - **Fix**: Add `check_crd()` call to `main()`
-4. **Kubectl Version Check**: `MIN_KUBECTL_VERSION` defined but not used
-   - **Fix**: Implement kubectl version check or remove constant
-5. **Makefile Targets**: No `Makefile` with `make preflight` and `make clean-ns` targets
-   - **Fix**: Create `Makefile` with targets
-
-#### 🔧 Required Fixes:
-```python
-# In ops/hooks.py, add:
-def run_hooks(stage: HookStage, namespace: str) -> None:
-    """Wrapper function for runner/one_step.py"""
-    hooks = LocalHooks()
-    if stage == "pre_start":
-        hooks.pre_start(namespace)
-    elif stage == "pre_run":
-        # Future: implement pre_run
-        pass
-    elif stage == "post_run":
-        # Future: implement post_run
-        pass
-    elif stage == "post_stop":
-        # Future: implement post_stop
-        pass
-    else:
-        raise ValueError(f"Unknown hook stage: {stage}")
-
-# In ops/preflight.py, update main():
-def main():
-    checks = [
-        check_kube_api(),
-        check_namespace(TARGET_NAMESPACE),
-        check_crd(),  # Add this
-    ]
-    if all(checks):
-        print("✓ All preflight checks passed")
-        return 0
-    else:
-        print("✗ Some preflight checks failed")
-        return 1
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
-```
+  - ✅ `run_hooks(stage, namespace)` wrapper function for runner integration
+- ✅ Makefile:
+  - ✅ `make preflight` target - Runs preflight checks
+  - ✅ `make clean-ns` target - Calls hooks to clean namespace
 
 #### 📝 Acceptance Checks:
-- ⚠️ `make preflight` - Need to create Makefile
-- ⚠️ `make clean-ns` - Need to create Makefile
-- ✅ `run_hooks("pre_start", "test-ns")` should delete pods (needs wrapper function)
-- ✅ Idempotency: running twice should not error
+- ✅ `make preflight` - Works and returns proper exit codes
+- ✅ `make clean-ns` - Works and deletes pods in test-ns
+- ✅ `run_hooks("pre_start", "test-ns")` - Works and can be imported by runner
+- ✅ Idempotency: running twice does not error
 
 ---
 
@@ -280,24 +233,15 @@ if __name__ == "__main__":
 
 ### Critical Issues Preventing End-to-End Execution:
 
-1. **Function Signature Mismatches**:
-   - `runner/one_step.py` expects standalone functions, but modules export classes
-   - **Fix**: Create wrapper functions in each module's `__init__.py` or modify runner
-
-2. **Missing Helper Functions**:
+1. **Missing Helper Functions in Runner**:
    - `deterministic_id()`, `write_step_record()`, `update_summary()` not implemented
    - **Fix**: Implement these functions in `runner/one_step.py`
 
-3. **Missing CLI Entry Points**:
-   - No `sk-env` executable (only `sk_env_run.py`)
+2. **Missing CLI Entry Point for Runner**:
    - No `sk-run` executable (only `runner/one_step.py` without CLI)
-   - **Fix**: Create executable scripts or add `if __name__ == "__main__"` blocks
+   - **Fix**: Add `if __name__ == "__main__"` block or create `sk-run` script
 
-4. **Missing Makefile**:
-   - No `make preflight` or `make clean-ns` targets
-   - **Fix**: Create `Makefile` with required targets
-
-5. **Missing Demo Trace**:
+3. **Missing Demo Trace**:
    - `demo/trace-0001.msgpack` doesn't exist
    - **Fix**: Run `python demo/make_demo_trace.py` to generate it
 
@@ -307,46 +251,27 @@ if __name__ == "__main__":
 
 ### High Priority (Blocking MVP):
 
-1. **Fix Function Exports** (Diya + Rui):
-   - Create wrapper functions in `env/sim_env.py` or `env/__init__.py`:
-     - `create_simulation(name, trace_path, duration_s, namespace) -> str`
-     - `wait_fixed(duration_s) -> None`
-     - `delete_simulation(name, namespace) -> None`
-   - Create wrapper function in `ops/hooks.py`:
-     - `run_hooks(stage: str, namespace: str) -> None`
-
-2. **Complete Runner Implementation** (Omar):
+1. **Complete Runner Implementation** (Omar):
    - Implement `deterministic_id()`, `write_step_record()`, `update_summary()` functions
    - Add CLI argument parsing and `main()` function
    - Test end-to-end execution
 
-3. **Create Makefile** (Rui):
-   - Add `make preflight` target (calls `ops/preflight.py`)
-   - Add `make clean-ns` target (calls `ops/hooks.py pre_start`)
-   - Ensure proper error handling and exit codes
-
-4. **Generate Demo Trace** (Bob):
+2. **Generate Demo Trace** (Bob):
    - Run `python demo/make_demo_trace.py` to create `demo/trace-0001.msgpack`
    - Verify it can be loaded with `load_trace()`
 
-5. **Create CLI Entry Points**:
-   - Create `sk-env` script (wrapper around `sk_env_run.py`)
-   - Create `sk-run` script (wrapper around `runner/one_step.py`)
-   - Or add `if __name__ == "__main__"` blocks to existing files
+3. **Create CLI Entry Point for Runner**:
+   - Add `if __name__ == "__main__"` block to `runner/one_step.py`
+   - Or create `sk-run` script (wrapper around `runner/one_step.py`)
 
 ### Medium Priority (Polish):
 
-6. **Fix Preflight Script** (Rui):
-   - Add `check_crd()` call to `main()`
-   - Add `if __name__ == "__main__"` block
-   - Implement kubectl version check or remove constant
-
-7. **Organize Tests** (Cate):
+4. **Organize Tests** (Cate):
    - Move `observe/text_observe.py` to `tests/test_observe.py`
    - Ensure pytest discovers all tests
    - Run full test suite to verify
 
-8. **Add Requirements File**:
+5. **Add Requirements File**:
    - Create `requirements.txt` with dependencies:
      - `kubernetes`
      - `msgpack`
@@ -355,13 +280,13 @@ if __name__ == "__main__":
 
 ### Low Priority (Documentation):
 
-9. **Create README**:
+6. **Create README**:
    - Document exact commands to reproduce one step from fresh clone
    - Include setup instructions
    - Include test instructions
    - Include troubleshooting guide
 
-10. **Add Integration Tests**:
+7. **Add Integration Tests**:
     - Test end-to-end flow with mocked Kubernetes API
     - Test error handling and cleanup
     - Test idempotency
@@ -370,49 +295,46 @@ if __name__ == "__main__":
 
 ## Test Matrix Status
 
-- ⚠️ `make preflight` - **BLOCKED** (Makefile doesn't exist)
+- ✅ `make preflight` - **PASSING** (Makefile exists and works)
 - ✅ Unit tests (Bob) - **PASSING** (tests/test_ops.py exists and works)
 - ⚠️ Unit tests (Cate) - **PARTIAL** (tests exist but need organization)
 - ⚠️ Dry-run: `sk-run one-step ...` - **BLOCKED** (CLI entry point missing)
-- ⚠️ Idempotency: `make clean-ns` twice - **BLOCKED** (Makefile doesn't exist)
+- ✅ Idempotency: `make clean-ns` twice - **PASSING** (Makefile exists and works)
 
 ---
 
 ## Estimated Time to MVP
 
-- **High Priority Tasks**: 4-6 hours
-  - Function exports: 1-2 hours
+- **High Priority Tasks**: 2-4 hours
   - Runner completion: 1-2 hours
-  - Makefile: 30 minutes
   - Demo trace: 5 minutes
-  - CLI entry points: 30 minutes
+  - CLI entry point: 30 minutes
 - **Medium Priority Tasks**: 2-3 hours
-- **Total**: 6-9 hours of focused work
+- **Total**: 4-7 hours of focused work
 
 ---
 
 ## Recommendations for Two-Person Team
 
-### Person 1 (Integration Focus):
-1. Fix function exports (wrapper functions)
-2. Complete runner implementation (helper functions + CLI)
-3. Create Makefile
-4. Test end-to-end execution
+### Person 1 (Runner Focus):
+1. Complete runner implementation (helper functions + CLI)
+2. Test end-to-end execution
+3. Generate demo trace
 
 ### Person 2 (Polish & Testing):
-1. Generate demo trace
-2. Organize tests
-3. Create requirements.txt
-4. Create README
-5. Run full test suite
+1. Organize tests
+2. Create requirements.txt
+3. Create README
+4. Run full test suite
 
 ---
 
 ## Notes
 
-- All core functionality is implemented (~70% complete)
-- Main blocker is integration between modules (function signatures)
-- Once integration is fixed, MVP should work end-to-end
+- All core functionality is implemented (~80% complete)
+- Diya's and Rui's tasks are complete - wrapper functions and Makefile are done
+- Main blocker is runner helper functions (deterministic_id, write_step_record, update_summary)
+- Once runner is complete, MVP should work end-to-end
 - Test coverage is good for actions module, needs organization for observe module
 - Documentation needs improvement but is not blocking MVP
 

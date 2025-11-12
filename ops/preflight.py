@@ -42,8 +42,32 @@ def check_crd() -> bool:
         apix.read_custom_resource_definition(crd_name)
         print(f"✓ CRD '{crd_name}' is installed")
         return True
+    except ApiException as e:
+        if e.status == 404:
+            print(f"X CRD '{crd_name}' not found")
+            print(f"  Install it with: kubectl apply -f <crd-manifest>")
+        else:
+            print(f"X Error checking CRD: {e}")
+        return False
+    except Exception as e:
+        print(f"X Error checking CRD: {e}")
+        return False
 
 def main():
-    check_kube_api()
+    result1 = check_kube_api()
     print("-"*20)
-    check_namespace(TARGET_NAMESPACE)
+    result2 = check_namespace(TARGET_NAMESPACE)
+    print("-"*20)
+    result3 = check_crd()
+    
+    checks = [result1, result2, result3]
+    if all(checks):
+        print("✓ All preflight checks passed")
+        return 0
+    else:
+        print("✗ Some preflight checks failed")
+        return 1
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
