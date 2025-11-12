@@ -75,7 +75,7 @@ def delete_simulation(name: str, namespace: str) -> None:
   - ✅ Tests for observe with mocked Kubernetes clients
   - ✅ Tests cover: success, pending, not ready, wrong total, scaled up but not ready
 
-#### ⚠️ Minor Issues:
+#### ⚠️ Minor Issues: DONE
 1. **Test File Naming**: Tests are in `text_observe.py` instead of `test_observe.py`
    - **Fix**: Rename file or ensure pytest discovers it
 2. **Test Organization**: Tests should be in `tests/` directory per project structure
