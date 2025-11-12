@@ -76,3 +76,24 @@ class LocalHooks:
         print(f"=== pre_start hook for namespace '{namespace}' ===")
         self.delete_all_pods(namespace)
         print("pre_start hook completed\n")
+
+
+def run_hooks(stage: HookStage, namespace: str) -> None:
+    """
+    Wrapper function for runner/one_step.py.
+    Creates a LocalHooks instance and calls the appropriate method based on stage.
+    """
+    hooks = LocalHooks()
+    if stage == "pre_start":
+        hooks.pre_start(namespace)
+    elif stage == "pre_run":
+        # Future: implement pre_run
+        pass
+    elif stage == "post_run":
+        # Future: implement post_run
+        pass
+    elif stage == "post_stop":
+        # Future: implement post_stop
+        pass
+    else:
+        raise ValueError(f"Unknown hook stage: {stage}")
