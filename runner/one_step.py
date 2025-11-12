@@ -26,9 +26,9 @@ except Exception as e:
     raise
 
 try:
-    from env.sim_env import create_simulation, wait_fixed, delete_simulation
+    from env import create_simulation, wait_fixed, delete_simulation
 except Exception as e:
-    print("ERROR: failed to import env.sim_env functions. Make sure /env/sim_env.py exists.", file=sys.stderr)
+    print("ERROR: failed to import env functions. Make sure /env/__init__.py exists.", file=sys.stderr)
     raise
 
 try:
