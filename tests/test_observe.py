@@ -1,10 +1,9 @@
 # observe/test_observe.py
-import pytest
 from unittest.mock import patch, Mock
 
 # Import your functions to test
 from observe.reward import reward
-from observe.reader import observe, current_requests
+from observe.reader import observe
 
 # --- 1. Tests for reward.py (doesn't need mock pods) ---
 
