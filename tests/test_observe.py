@@ -48,8 +48,9 @@ def create_mock_pod(phase, ready_condition_status):
     return pod
 
 # Use 'patch' to replace the 'v1' client inside the 'reader' module
+@patch('observe.reader._ensure_clients')  # Skip client initialization
 @patch('observe.reader.v1')
-def test_observe_all_ready(mock_v1_client):
+def test_observe_all_ready(mock_v1_client, mock_ensure):
     # 1. Arrange: Create mock return data
     mock_pod_list = Mock()
     mock_pod_list.items = [
@@ -69,8 +70,9 @@ def test_observe_all_ready(mock_v1_client):
         namespace="test-ns", label_selector="app=web"
     )
 
+@patch('observe.reader._ensure_clients')  # Skip client initialization
 @patch('observe.reader.v1')
-def test_observe_one_pending(mock_v1_client):
+def test_observe_one_pending(mock_v1_client, mock_ensure):
     # 1. Arrange
     mock_pod_list = Mock()
     mock_pod_list.items = [
