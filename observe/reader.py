@@ -1,12 +1,31 @@
 # observe/reader.py
-from kubernetes import client, config
+# NOTE: Avoid failing at import time if kubernetes or kubeconfig is unavailable.
+try:
+    from kubernetes import client, config  # type: ignore
+except Exception:  # pragma: no cover - environment-specific
+    client = None  # type: ignore
+    config = None  # type: ignore
 
-# Load kubeconfig from ~/.kube/config
-config.load_kube_config()
+# Lazily initialize API clients; keep module attributes for easy patching in tests.
+v1 = None
+apps_v1 = None
 
-# Create API clients
-v1 = client.CoreV1Api()
-apps_v1 = client.AppsV1Api()
+def _ensure_clients():
+    global v1, apps_v1
+    if v1 is not None and apps_v1 is not None:
+        return
+    if client is None or config is None:
+        # Leave as None; tests can patch v1/apps_v1.
+        return
+    # Load kubeconfig from ~/.kube/config and create clients
+    try:  # pragma: no cover - depends on environment
+        config.load_kube_config()
+        v1 = client.CoreV1Api()
+        apps_v1 = client.AppsV1Api()
+    except Exception:
+        # Leave as None if we cannot initialize; functions handle None gracefully.
+        v1 = None
+        apps_v1 = None
 
 def observe(namespace: str, deployment_name: str) -> dict:
     """
@@ -20,8 +39,13 @@ def observe(namespace: str, deployment_name: str) -> dict:
     # It's the key to linking pods to the 'web' deployment.
     label_selector = f"app={deployment_name}"
     
+    # Ensure clients exist (no-op in tests where v1 is patched)
+    _ensure_clients()
+
     try:
         # List all pods in the namespace that match the label
+        if v1 is None:
+            raise RuntimeError("Kubernetes client not initialized")
         pod_list = v1.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
         
         ready = 0
@@ -44,7 +68,7 @@ def observe(namespace: str, deployment_name: str) -> dict:
                         
         return {"ready": ready, "pending": pending, "total": total}
 
-    except client.ApiException as e:
+    except Exception as e:
         print(f"Error observing pods: {e}")
         # On error, return a "safe" empty/zero state
         return {"ready": 0, "pending": 0, "total": 0}
@@ -53,7 +77,12 @@ def current_requests(namespace: str, deploy: str) -> dict:
     """
     Gets the *current* CPU/Memory requests for a deployment's first container.
     """
+    # Ensure clients exist
+    _ensure_clients()
+
     try:
+        if apps_v1 is None:
+            raise RuntimeError("Kubernetes apps client not initialized")
         deployment = apps_v1.read_namespaced_deployment(name=deploy, namespace=namespace)
         
         # Get requests from the first container in the pod template
@@ -71,7 +100,7 @@ def current_requests(namespace: str, deploy: str) -> dict:
             "memory": requests.get("memory", "0")
         }
 
-    except client.ApiException as e:
+    except Exception as e:
         print(f"Error reading deployment '{deploy}': {e}")
         # Return a "safe" empty state
         return {"cpu": "0", "memory": "0"}

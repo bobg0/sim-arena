@@ -1,6 +1,9 @@
 """Environment module for creating and managing SimKube simulations."""
 
-from .sim_env import SimEnv
+def _get_env():
+    # Import lazily to avoid pulling kubernetes deps during test collection
+    from .sim_env import SimEnv  # local import
+    return SimEnv()
 
 
 def create_simulation(name: str, trace_path: str, duration_s: int, namespace: str) -> str:
@@ -19,7 +22,7 @@ def create_simulation(name: str, trace_path: str, duration_s: int, namespace: st
     Returns:
         The simulation name (string)
     """
-    env = SimEnv()
+    env = _get_env()
     handle = env.create(name, trace_path, namespace, duration_s)
     # Return the name as a string (runner expects sim_uid as string)
     return handle.get("name") or name
@@ -34,7 +37,7 @@ def wait_fixed(duration_s: int) -> None:
     Args:
         duration_s: Duration in seconds to wait
     """
-    env = SimEnv()
+    env = _get_env()
     env.wait_fixed(duration_s)
 
 
@@ -49,6 +52,6 @@ def delete_simulation(name: str, namespace: str) -> None:
         name: Kubernetes object name
         namespace: Target namespace
     """
-    env = SimEnv()
+    env = _get_env()
     env.delete(name=name, namespace=namespace)
 
