@@ -60,6 +60,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger("one_step")
 
+# ---- Helper functions ----
+
+def deterministic_id(trace_path: str, namespace: str, deploy: str, target: int, timestamp: str) -> str:
+    """Generate a deterministic ID for the simulation"""
+    data = f"{trace_path}{namespace}{deploy}{target}{timestamp}"
+    return hashlib.md5(data.encode()).hexdigest()[:8]
+
+def write_step_record(record: dict) -> None:
+    """Write a single step record to step.jsonl"""
+    with STEP_LOG.open("a") as f:
+        json.dump(record, f)
+        f.write("\n")
+
+def update_summary(record: dict) -> None:
+    """Update summary.json with the latest record"""
+    if SUMMARY_LOG.exists():
+        with SUMMARY_LOG.open("r") as f:
+            summary = json.load(f)
+    else:
+        summary = {"steps": [], "total_rewards": 0, "total_steps": 0}
+    
+    summary["steps"].append(record)
+    summary["total_steps"] = len(summary["steps"])
+    summary["total_rewards"] = sum(r.get("reward", 0) for r in summary["steps"])
+    
+    with SUMMARY_LOG.open("w") as f:
+        json.dump(summary, f, indent=2)
+
+def main():
+    parser = argparse.ArgumentParser(description="Run one agent step")
+    parser.add_argument("--trace", required=True, help="Input trace path")
+    parser.add_argument("--ns", "--namespace", dest="namespace", required=True, help="Namespace")
+    parser.add_argument("--deploy", required=True, help="Deployment name")
+    parser.add_argument("--target", type=int, required=True, help="Target total pods")
+    parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    args = parser.parse_args()
+    
+    return one_step(
+        trace_path=args.trace,
+        namespace=args.namespace,
+        deploy=args.deploy,
+        target=args.target,
+        duration=args.duration,
+        seed=args.seed,
+    )
+
+if __name__ == "__main__":
+    sys.exit(main())
+
 # ---- Policy (heuristic) ----
 def simple_policy(obs: dict, deploy: str):
     """
