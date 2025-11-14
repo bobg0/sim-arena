@@ -48,14 +48,15 @@ class SimEnv:
         driver_image, driver_port: defaults for SimKubes driver fields in the Simulation spec.
         """
         if self._crd_installed():
+            # Simulation CRD is cluster-scoped, so don't include namespace in metadata
             body = {
                 "apiVersion": f"{SIM_GROUP}/{SIM_VER}",
                 "kind": "Simulation",
-                "metadata": {"name": name, "namespace": namespace},
+                "metadata": {"name": name},  # Cluster-scoped: no namespace in metadata
                 "spec": {
                     "driver": {
                         "image": driver_image,
-                        "namespace": namespace,
+                        "namespace": namespace,  # Driver runs in this namespace
                         "port": int(driver_port),
                         "tracePath": trace_path,
                     },
@@ -63,9 +64,10 @@ class SimEnv:
                 },
             }
             try:
-                self.custom.create_namespaced_custom_object(
+                # Use cluster-scoped API for cluster-scoped CRD
+                self.custom.create_cluster_custom_object(
                     group=SIM_GROUP, version=SIM_VER,
-                    namespace=namespace, plural=SIM_PLURAL, body=body
+                    plural=SIM_PLURAL, body=body
                 )
                 return {"kind": "simulation", "name": name, "ns": namespace}
             except ApiException as e:
@@ -105,11 +107,11 @@ class SimEnv:
         
         # If we know the kind from handle, use it; otherwise try both
         if kind == "simulation":
-            # Try simulation only
+            # Try simulation only (cluster-scoped, so no namespace parameter)
             try:
-                self.custom.delete_namespaced_custom_object(
+                self.custom.delete_cluster_custom_object(
                     group=SIM_GROUP, version=SIM_VER,
-                    namespace=namespace, plural=SIM_PLURAL, name=name,
+                    plural=SIM_PLURAL, name=name,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=0)
                 )
@@ -128,11 +130,11 @@ class SimEnv:
                     raise
         else:
             # Unknown kind - try simulation first, then configmap
-            # Try simulation
+            # Try simulation (cluster-scoped, so no namespace parameter)
             try:
-                self.custom.delete_namespaced_custom_object(
+                self.custom.delete_cluster_custom_object(
                     group=SIM_GROUP, version=SIM_VER,
-                    namespace=namespace, plural=SIM_PLURAL, name=name,
+                    plural=SIM_PLURAL, name=name,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=0)
                 )
