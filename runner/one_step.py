@@ -88,28 +88,6 @@ def update_summary(record: dict) -> None:
     with SUMMARY_LOG.open("w") as f:
         json.dump(summary, f, indent=2)
 
-def main():
-    parser = argparse.ArgumentParser(description="Run one agent step")
-    parser.add_argument("--trace", required=True, help="Input trace path")
-    parser.add_argument("--ns", "--namespace", dest="namespace", required=True, help="Namespace")
-    parser.add_argument("--deploy", required=True, help="Deployment name")
-    parser.add_argument("--target", type=int, required=True, help="Target total pods")
-    parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    args = parser.parse_args()
-    
-    return one_step(
-        trace_path=args.trace,
-        namespace=args.namespace,
-        deploy=args.deploy,
-        target=args.target,
-        duration=args.duration,
-        seed=args.seed,
-    )
-
-if __name__ == "__main__":
-    sys.exit(main())
-
 # ---- Policy (heuristic) ----
 def simple_policy(obs: dict, deploy: str):
     """
@@ -222,6 +200,28 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     elapsed = time.time() - start_time
     logger.info(f"one_step completed in {elapsed:.2f}s")
     return 0
+
+def main():
+    parser = argparse.ArgumentParser(description="Run one agent step")
+    parser.add_argument("--trace", required=True, help="Input trace path")
+    parser.add_argument("--ns", "--namespace", dest="namespace", required=True, help="Namespace")
+    parser.add_argument("--deploy", required=True, help="Deployment name")
+    parser.add_argument("--target", type=int, required=True, help="Target total pods")
+    parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    args = parser.parse_args()
+    
+    return one_step(
+        trace_path=args.trace,
+        namespace=args.namespace,
+        deploy=args.deploy,
+        target=args.target,
+        duration=args.duration,
+        seed=args.seed,
+    )
+
+if __name__ == "__main__":
+    sys.exit(main())
 
 ## CALL CATES OBSERVE FUNCTION
 
