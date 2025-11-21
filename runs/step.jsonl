@@ -1,0 +1,1 @@
+{"timestamp": "2025-11-14T22:12:43.541785Z", "sim_name": "diag-cc09d3c5", "sim_uid": "diag-cc09d3c5", "namespace": "test-ns", "trace_in": "demo/trace-0001.msgpack", "trace_out": ".tmp/trace-next.msgpack", "obs": {"ready": 0, "pending": 0, "total": 0}, "action": {"type": "noop"}, "reward": 0, "duration_s": 60, "seed": 0}
