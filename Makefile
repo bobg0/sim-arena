@@ -1,10 +1,13 @@
 .PHONY: preflight clean-ns
 
+# Use virtual environment Python if it exists, otherwise fall back to system python3
+PYTHON := $(shell if [ -d .venv ]; then echo .venv/bin/python; else echo python3; fi)
+
 preflight:
-	python3 ops/preflight.py
+	$(PYTHON) ops/preflight.py
 
 clean-ns:
-	PYTHONPATH=. python3 -c "from ops.hooks import run_hooks; run_hooks('pre_start', 'test-ns')"
+	PYTHONPATH=. $(PYTHON) -c "from ops.hooks import run_hooks; run_hooks('pre_start', 'test-ns')"
 
 
 

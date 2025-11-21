@@ -40,7 +40,14 @@ echo "   - Compute reward"
 echo "   - Log results"
 echo ""
 
-PYTHONPATH=. python3 runner/one_step.py \
+# Use virtual environment Python if available, otherwise use system python3
+if [ -f ".venv/bin/python" ]; then
+    PYTHON=".venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+PYTHONPATH=. $PYTHON runner/one_step.py \
   --trace demo/trace-0001.msgpack \
   --ns test-ns \
   --deploy web \
