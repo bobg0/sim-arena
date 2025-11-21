@@ -6,8 +6,8 @@ from kubernetes.client.rest import ApiException
 # TODO: confirm these on your cluster:
 # kubectl api-resources --api-group=<group> -o wide
 # kubectl get crd simulations.<group> -o yaml
-SIM_GROUP = "simkube.dev"      # or "simkube.io"
-SIM_VER = "v1alpha1"           # or "v1"
+SIM_GROUP = "simkube.io"       # Updated to match SimKube docs
+SIM_VER = "v1"                 # Updated to match SimKube docs
 SIM_PLURAL = "simulations"
 
 class SimEnv:
@@ -48,14 +48,15 @@ class SimEnv:
         driver_image, driver_port: defaults for SimKubes driver fields in the Simulation spec.
         """
         if self._crd_installed():
+            # Simulation CRD is cluster-scoped, so don't include namespace in metadata
             body = {
                 "apiVersion": f"{SIM_GROUP}/{SIM_VER}",
                 "kind": "Simulation",
-                "metadata": {"name": name, "namespace": namespace},
+                "metadata": {"name": name},  # Cluster-scoped: no namespace in metadata
                 "spec": {
                     "driver": {
                         "image": driver_image,
-                        "namespace": namespace,
+                        "namespace": namespace,  # Driver runs in this namespace
                         "port": int(driver_port),
                         "tracePath": trace_path,
                     },
@@ -63,9 +64,10 @@ class SimEnv:
                 },
             }
             try:
-                self.custom.create_namespaced_custom_object(
+                # Use cluster-scoped API for cluster-scoped CRD
+                self.custom.create_cluster_custom_object(
                     group=SIM_GROUP, version=SIM_VER,
-                    namespace=namespace, plural=SIM_PLURAL, body=body
+                    plural=SIM_PLURAL, body=body
                 )
                 return {"kind": "simulation", "name": name, "ns": namespace}
             except ApiException as e:
@@ -85,23 +87,69 @@ class SimEnv:
     def wait_fixed(self, seconds: int):
         time.sleep(int(seconds))
 
-    def delete(self, handle):
+    def delete(self, handle=None, name=None, namespace=None):
         """
         Delete whatever we created in create(). Ignore 404s to be idempotent.
+        
+        Can be called with either:
+        - handle dict: {"kind": "simulation", "name": "...", "ns": "..."}
+        - name and namespace: delete(name="...", namespace="...")
         """
-        try:
-            if handle["kind"] == "simulation":
-                self.custom.delete_namespaced_custom_object(
+        # Extract name and namespace from handle if provided
+        if handle:
+            name = handle.get("name")
+            namespace = handle.get("ns") or handle.get("namespace")
+            kind = handle.get("kind")
+        elif not (name and namespace):
+            raise ValueError("Must provide either handle dict or name+namespace")
+        else:
+            kind = None  # Unknown, will try both
+        
+        # If we know the kind from handle, use it; otherwise try both
+        if kind == "simulation":
+            # Try simulation only (cluster-scoped, so no namespace parameter)
+            try:
+                self.custom.delete_cluster_custom_object(
                     group=SIM_GROUP, version=SIM_VER,
-                    namespace=handle["ns"], plural=SIM_PLURAL, name=handle["name"],
+                    plural=SIM_PLURAL, name=name,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=0)
                 )
-            else:
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        elif kind == "configmap":
+            # Try configmap only
+            try:
                 self.core.delete_namespaced_config_map(
-                    name=handle["name"], namespace=handle["ns"],
+                    name=name, namespace=namespace,
                     body=client.V1DeleteOptions()
                 )
-        except ApiException as e:
-            if e.status != 404:
-                raise
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        else:
+            # Unknown kind - try simulation first, then configmap
+            # Try simulation (cluster-scoped, so no namespace parameter)
+            try:
+                self.custom.delete_cluster_custom_object(
+                    group=SIM_GROUP, version=SIM_VER,
+                    plural=SIM_PLURAL, name=name,
+                    body=client.V1DeleteOptions(propagation_policy="Foreground",
+                                                grace_period_seconds=0)
+                )
+                return  # Success
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+            
+            # Try configmap
+            try:
+                self.core.delete_namespaced_config_map(
+                    name=name, namespace=namespace,
+                    body=client.V1DeleteOptions()
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # Both failed with 404, that's okay (idempotent)
