@@ -1,315 +1,619 @@
-# Sim-Arena MVP Status Report
+# Sim-Arena Next Phase Status Report
 
-**Date**: Updated after git pull  
-**Goal**: Get a single, reproducible agent step working end-to-end on a real cluster  
-**Status**: ✅ 100% Complete - All tasks complete! Ready for demo!
-
----
-
-## Task Completion Status
-
-### 1. Diya — SimKube "Environment" sim (env/) ✅ **COMPLETE**
-
-#### ✅ Completed:
-- ✅ Module `env/sim_env.py` with `SimEnv` class:
-  - ✅ `create()` method (returns handle dict)
-  - ✅ `wait_fixed()` method
-  - ✅ `delete()` method (enhanced to accept name/namespace)
-  - ✅ Uses kubeconfig from `~/.kube/config` with fallback to in-cluster
-  - ✅ CRD detection with ConfigMap fallback
-  - ✅ Handles 409 (already exists) gracefully
-  - ✅ Idempotent delete (handles 404)
-  - ✅ Updated CRD constants to `simkube.io/v1` (matches SimKube docs)
-- ✅ CLI script `sk_env_run.py` (Python script):
-  - ✅ Supports `--name`, `--trace`, `--ns`, `--duration`
-  - ✅ Supports `--group`, `--version`, `--plural` overrides
-  - ✅ JSON output mode
-  - ✅ Error handling with cleanup
-  - ✅ Executable with shebang
-- ✅ Wrapper functions in `env/__init__.py`:
-  - ✅ `create_simulation(name, trace_path, duration_s, namespace) -> str`
-  - ✅ `wait_fixed(duration_s) -> None`
-  - ✅ `delete_simulation(name, namespace) -> None`
-- ✅ CLI entry point `sk-env` script:
-  - ✅ Executable wrapper script for `sk_env_run.py`
-  - ✅ Works with all command-line arguments
+**Date**: Created for next 1–1.5 weeks of work  
+**Context**: Post-MVP integration complete; now implementing real logic, traces, and agents  
+**Goal**: Fill in empty shells, create working agent–simulation loop, generate traces, document system state
 
 ---
 
-### 2. Cate — Observations & Reward (observe/) ✅ **COMPLETE**
+## Meeting Guidance Summary
 
-#### ✅ Completed:
-- ✅ Module `observe/reader.py`:
-  - ✅ `observe(namespace: str, deployment_name: str) -> dict` (returns `{"ready": int, "pending": int, "total": int}`)
-  - ✅ `current_requests(namespace: str, deploy: str) -> dict` (returns `{"cpu": "...", "memory": "..."}`)
-  - ✅ Uses kubeconfig from `~/.kube/config`
-  - ✅ Error handling with safe defaults
-- ✅ Module `observe/reward.py`:
-  - ✅ `reward(obs: dict, target_total: int, T_s: int) -> int` (returns 1 if success, 0 otherwise)
-  - ✅ Binary reward logic: `ready == target_total && total == target_total && pending == 0`
-- ✅ CLI script `observe/print_obs.py`:
-  - ✅ Supports `--ns` argument
-  - ✅ Prints observation dict as JSON
-- ✅ Unit tests `tests/test_observe.py`:
-  - ✅ Tests properly organized in `tests/` directory
-  - ✅ 5+ tests for reward logic
-  - ✅ Tests for observe with mocked Kubernetes clients
-  - ✅ Tests cover: success, pending, not ready, wrong total, scaled up but not ready
+### From Erin's Meeting:
+- ✅ Finish integration testing
+- ✅ Create a **working** agent–simulation loop
+- ✅ Build a simple hand-coded or random agent
+- ⚠️ **Keep scope narrow** — focus on *one* error type
+- ⚠️ Prepare for break by documenting system state
+- ⚠️ Ensure future you knows how to restart
 
-#### 📝 Acceptance Checks:
-- ✅ `pytest` green with at least 5 tests (pending→reward 0, all ready→1, wrong totals→0, etc.)
-- ✅ `observe/print_obs.py --ns test-ns` prints dict on live cluster
+### From David's Meeting:
+- ⚠️ Generate multiple traces of the *same* insufficient-resources error
+- ⚠️ Implement **real actions**
+- ⚠️ Define state and action space
+- ⚠️ Fill in the "empty shells" inside modules
+- ⚠️ Prepare demo
+- ⚠️ Complete mid-year update
 
----
-
-### 3. Bob — Trace & Actions (env/actions/) ✅ **COMPLETE**
-
-#### ✅ Completed:
-- ✅ Module `env/actions/trace_io.py`:
-  - ✅ `load_trace(path: str) -> dict`
-  - ✅ `save_trace(obj: dict, path: str) -> None`
-  - ✅ MessagePack format support
-  - ✅ Error handling (FileNotFoundError, ValueError, TypeError)
-- ✅ Module `env/actions/ops.py`:
-  - ✅ `bump_cpu_small(obj: dict, deploy: str, step: str = "500m") -> bool`
-  - ✅ `bump_mem_small(obj: dict, deploy: str, step: str = "256Mi") -> bool`
-  - ✅ `scale_up_replicas(obj: dict, deploy: str, delta: int = 1) -> bool`
-  - ✅ Proper CPU/memory parsing and formatting
-  - ✅ Returns `False` if deployment not found (leaves trace unchanged)
-- ✅ CLI script `sk-action`:
-  - ✅ Supports `sk-action apply --in ... --out ... --deploy ... --op ...`
-  - ✅ Supports `--step` and `--delta` options
-  - ✅ Prints JSON diff of changes
-  - ✅ Returns appropriate exit codes
-- ✅ Unit tests `tests/test_ops.py`:
-  - ✅ Tests for `bump_cpu_small`, `bump_mem_small`, `scale_up_replicas`
-  - ✅ Test for "deployment not found" returns `False` and leaves file unchanged
-- ✅ Demo trace script `demo/make_demo_trace.py`:
-  - ✅ Converts JSON to MessagePack
-  - ✅ Supports `--json` and `--out` arguments
-- ✅ Demo trace `demo/trace-0001.json`:
-  - ✅ Synthetic trace with Deployment "web"
-  - ✅ Contains CPU/memory requests
-- ✅ Demo trace `demo/trace-0001.msgpack`:
-  - ✅ MessagePack file exists and can be loaded
-  - ✅ Generated from JSON trace
-
-#### 📝 Acceptance Checks:
-- ✅ `sk-action apply ...` produces new msgpack with intended changes
-- ✅ Unit tests cover "deployment not found" case
-- ✅ `demo/trace-0001.msgpack` file exists and is loadable
+### Current Status:
+- ✅ MVP is fully integrated
+- ⚠️ Most internals are still no-ops (need real logic)
+- ⚠️ Remaining: fill in real logic, create traces, implement hand-coded agent, document for mid-year deliverable
 
 ---
 
-### 4. Rui — Hooks & Preflight (ops/) ✅ **COMPLETE**
-
-#### ✅ Completed:
-- ✅ Script `ops/preflight.py`:
-  - ✅ `check_kube_api()` - Checks Kubernetes API connectivity
-  - ✅ `check_namespace(namespace: str)` - Checks if namespace exists
-  - ✅ `check_crd()` - Checks if CRD is installed (with error handling)
-  - ✅ `main()` function calls all checks and returns proper exit codes
-  - ✅ Helpful error messages
-  - ✅ CLI entry point with `if __name__ == "__main__"` block
-- ✅ Hooks runner `ops/hooks.py`:
-  - ✅ `LocalHooks` class with `pre_start()` method
-  - ✅ `delete_all_pods(namespace: str)` - Deletes all pods in namespace
-  - ✅ Idempotent (handles 404 gracefully)
-  - ✅ Uses kubeconfig from `~/.kube/config` with in-cluster fallback
-  - ✅ `run_hooks(stage, namespace)` wrapper function for runner integration
-- ✅ Makefile:
-  - ✅ `make preflight` target - Runs preflight checks
-  - ✅ `make clean-ns` target - Calls hooks to clean namespace
-
-#### 📝 Acceptance Checks:
-- ✅ `make preflight` - Works and returns proper exit codes
-- ✅ `make clean-ns` - Works and deletes pods in test-ns
-- ✅ `run_hooks("pre_start", "test-ns")` - Works and can be imported by runner
-- ✅ Idempotency: running twice does not error
+## Task Assignments (1–1.5 Weeks)
 
 ---
 
-### 5. Omar — Minimal Agent Loop & Orchestration (runner/) ✅ **COMPLETE**
+## **DIYA — Integration + Arena Behavior**
 
-#### ✅ Completed:
-- ✅ Module `runner/one_step.py`:
-  - ✅ Imports all required modules (with error handling)
-  - ✅ `simple_policy()` function (if pending > 0 → bump_cpu_small, else noop)
-  - ✅ `one_step()` function with orchestration logic:
-    - ✅ pre_start hook
-    - ✅ create simulation
-    - ✅ wait fixed
-    - ✅ observe
-    - ✅ policy decision
-    - ✅ load trace and apply action
-    - ✅ compute reward
-    - ✅ cleanup (delete simulation)
-  - ✅ Logging setup
-  - ✅ Error handling with cleanup
-- ✅ Helper Functions (All Implemented):
-  - ✅ `deterministic_id(trace_path, namespace, deploy, target, timestamp) -> str`
-  - ✅ `write_step_record(record: dict) -> None`
-  - ✅ `update_summary(record: dict) -> None`
-- ✅ CLI Entry Point:
-  - ✅ `main()` function with argparse for CLI arguments
-  - ✅ `if __name__ == "__main__"` block
-  - ✅ Can be run directly: `python runner/one_step.py --trace ... --ns ... --deploy ... --target ...`
-- ✅ Integration Tests:
-  - ✅ Comprehensive test suite in `tests/test_runner_integration.py`
-  - ✅ Tests for helper functions (deterministic_id, write_step_record, update_summary)
-  - ✅ Tests for policy logic
-  - ✅ Tests for full one_step() flow with mocked Kubernetes
-  - ✅ Tests for error handling and cleanup
-  - ✅ Tests for idempotency
+### Task 1: Implement Real Policy Behavior Inside the Loop
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `runner/one_step.py` — Replace `simple_policy()` function (lines ~92-102)
+- Create new file: `runner/policies.py` — Add configurable hand-coded policies
 
-#### 📝 Acceptance Checks:
-- ✅ `python runner/one_step.py --trace ... --ns ... --deploy ... --target ...` - Works with CLI
-- ✅ `runs/step.jsonl` - Implemented and working
-- ✅ `runs/summary.json` - Implemented and working
-- ✅ Integration tests verify two dry runs back-to-back yield consistent logs
+**Deliverables**:
+- [ ] Replace current simple policy with configurable policy system
+- [ ] Implement at least 3 policies:
+  - `always_bump_cpu()` — Always increments CPU requests
+  - `always_bump_memory()` — Always increments memory requests
+  - `scale_replicas()` — Always scales up replicas
+- [ ] Add policy selection mechanism (CLI arg or config)
+- [ ] These policies needed to test reward + environment interactions (per Erin)
+
+**Acceptance Criteria**:
+- `python runner/one_step.py --policy always_bump_cpu ...` works
+- Each policy produces different trace modifications
+- Policies can be tested independently
 
 ---
 
-## Integration Status
+### Task 2: Add Safeguard Logic / Hard Caps
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `runner/one_step.py` — Add guardrails before applying actions
+- `env/actions/ops.py` — Add validation logic to action functions
+- Consider: `runner/safeguards.py` — New module for guardrail logic
 
-### ✅ All Critical Integration Issues Resolved:
+**Deliverables**:
+- [ ] Prevent actions that allocate absurd resources (e.g., 100 CPUs, 1TB memory)
+- [ ] Implement simple guardrails:
+  - Maximum CPU per container (e.g., 16 CPUs)
+  - Maximum memory per container (e.g., 32GB)
+  - Maximum replicas (e.g., 100)
+- [ ] Return clear error messages when actions are blocked
+- [ ] Add validation before action application in `one_step()`
 
-1. ✅ **Helper Functions in Runner**: All implemented
-   - `deterministic_id()`, `write_step_record()`, `update_summary()` all working
-
-2. ✅ **CLI Entry Point for Runner**: Implemented
-   - `runner/one_step.py` has `main()` function and `if __name__ == "__main__"` block
-   - Can be run directly: `python runner/one_step.py --trace ... --ns ... --deploy ... --target ...`
-   - Optional: Could add `sk-run` wrapper script for convenience
-
-3. ✅ **Demo Trace**: Generated
-   - `demo/trace-0001.msgpack` exists and is loadable
-
-4. ✅ **Wrapper Functions**: All implemented
-   - `env/__init__.py` has `create_simulation()`, `wait_fixed()`, `delete_simulation()`
-   - `ops/hooks.py` has `run_hooks()` wrapper function
-
-5. ✅ **Tests**: Well organized
-   - All tests in `tests/` directory
-   - Comprehensive integration tests for runner
+**Acceptance Criteria**:
+- Attempting to allocate >16 CPUs returns error/False
+- Agent cannot issue impossible requests
+- Guardrails prevent infinite resource allocation
 
 ---
 
-## Next Steps (Priority Order)
+### Task 3: Prepare Combined System Demo
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Create/Modify**:
+- `demo/walkthrough.sh` or `demo/end_to_end_demo.sh` — Clean reproducible script
+- Update `DEMO_GUIDE.md` — Document the walkthrough
 
-### ✅ High Priority (Blocking MVP) - ALL COMPLETE:
+**Deliverables**:
+- [ ] Create clean, reproducible walkthrough script:
+  - `create` → `wait` → `observe` → `agent action` → `reward` → `cleanup`
+- [ ] Fix any integration rough edges discovered
+- [ ] Ensure demo works with hand-coded policies
+- [ ] Document demo in `DEMO_GUIDE.md`
 
-1. ✅ **Complete Runner Implementation** (Omar) - DONE
-   - ✅ All helper functions implemented
-   - ✅ CLI argument parsing and `main()` function added
-   - ✅ Comprehensive integration tests added
+**Acceptance Criteria**:
+- Script runs end-to-end without manual intervention
+- Demo shows working agent loop
+- Clean output/logging for presentation
 
-2. ✅ **Generate Demo Trace** (Bob) - DONE
-   - ✅ `demo/trace-0001.msgpack` exists and is loadable
+---
 
-3. ✅ **Create CLI Entry Point for Runner** - DONE
-   - ✅ `if __name__ == "__main__"` block added to `runner/one_step.py`
+### Task 4: Co-edit "Next Steps" Section of Mid-Year Update
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Modify**:
+- Create/update: `docs/MID_YEAR_UPDATE.md` or similar
+- Section: "Next Steps" — Explain how working loop sets up spring learning-agent stage
+
+**Deliverables**:
+- [ ] Summarize current working loop state
+- [ ] Explain transition path to learning agents (spring)
+- [ ] Document current limitations and future improvements
+
+**Acceptance Criteria**:
+- Clear explanation of current state
+- Clear roadmap for spring semester
+
+---
+
+## **OMAR — Runner Internals + Testing**
+
+### Task 1: Complete Internal Logic for Observation → Action → Trace Update
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `runner/one_step.py` — Verify trace update flow (lines ~145-180)
+- Ensure proper sequencing and state management
+
+**Deliverables**:
+- [ ] Verify runner loads updated trace from Bob's ops and writes it back
+- [ ] Confirm proper sequencing:
+  - `pre_start` → `create` → `wait` → `observe` → `apply action` → `compute reward` → `cleanup`
+- [ ] Ensure trace modifications persist between episodes
+- [ ] Add logging to verify trace update flow
+
+**Acceptance Criteria**:
+- Trace file is updated after action application
+- Next episode uses updated trace
+- Logging shows trace modification steps
+
+---
+
+### Task 2: Add Multiple Policy Plug-ins
+**Status**: 🔄 In Progress  
+**Priority**: Medium  
+**Files to Modify**:
+- `runner/one_step.py` — Policy selection mechanism
+- `runner/policies.py` (coordinate with Diya) — Policy implementations
+
+**Deliverables**:
+- [ ] Let runners select between policies:
+  - `noop` — No action
+  - `random` — Random action selection
+  - `always_bump_cpu` — Always bump CPU (from Diya)
+  - `always_bump_memory` — Always bump memory (from Diya)
+- [ ] Policy selection via CLI argument: `--policy <name>`
+- [ ] Needed to "fill in" empty agent shell (per Erin)
+
+**Acceptance Criteria**:
+- `--policy noop` runs without errors
+- `--policy random` selects random actions
+- Each policy produces different behavior
+
+---
+
+### Task 3: Test Integration with Multiple Generated Traces
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Create/Modify**:
+- `tests/test_multiple_traces.py` — New test file
+- `scripts/batch_run_traces.sh` — Batch runner script (coordinate with Rui)
+
+**Deliverables**:
+- [ ] Run 5–10 different insufficient-resource traces
+- [ ] Confirm loop behavior is stable:
+  - Pending pods first
+  - Then ready pods after action
+- [ ] Document bugs for mid-year update if results differ
+- [ ] Test trace variety:
+  - Very bad CPU (>16 CPUs requested)
+  - Very bad memory (>32GB requested)
+  - Slightly bad CPU (e.g., 8.5 CPUs)
+  - Mixed CPU/memory issues
+
+**Acceptance Criteria**:
+- All traces produce consistent loop behavior
+- Bugs documented if any found
+- Test suite passes with multiple traces
+
+---
+
+### Task 4: Write Small Troubleshooting Notes
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Create**:
+- `docs/TROUBLESHOOTING.md` or `README_TROUBLESHOOTING.md`
+
+**Deliverables**:
+- [ ] Explain common runner errors
+- [ ] Document clean-up problems for January restart
+- [ ] Include "how to restart" guide (per Erin's advice)
+
+**Acceptance Criteria**:
+- Future you (or team) can debug common issues
+- Clear restart instructions
+
+---
+
+## **CATE — Observations, Reward, System Diagram**
+
+### Task 1: Refine and Finalize Reward Function for Real Tests
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `observe/reward.py` — Enhance reward function (current: binary)
+
+**Deliverables**:
+- [ ] Evaluate whether wasteful solutions should get lower reward (Erin + David)
+- [ ] Propose and test at least *one* non-binary variant:
+  - Penalty for exceeding node capacity (hard cap from Diya)
+  - Gradual penalty based on resource waste
+  - Negative reward for over-allocation
+- [ ] Keep binary reward as baseline
+- [ ] Add configurable reward mode: `--reward-mode binary|gradual|penalty`
+
+**Acceptance Criteria**:
+- At least one non-binary reward variant implemented
+- Reward function tested with real traces
+- Over-allocation penalized appropriately
+
+---
+
+### Task 2: Improve and Finalize System Architecture Diagram
+**Status**: 🔄 In Progress  
+**Priority**: Medium  
+**Files to Create/Modify**:
+- `docs/ARCHITECTURE.md` — System architecture documentation
+- Create diagram: `docs/images/system-architecture.png` or `.svg`
+
+**Deliverables**:
+- [ ] Cleaned-up architecture diagram showing:
+  - Different boxes (components)
+  - Component flows
+  - Data flow
+- [ ] Diagram ready for mid-year update
+- [ ] Erin suggested formalizing architecture
+
+**Acceptance Criteria**:
+- Clear visual representation of system
+- All components labeled
+- Data flows indicated
+
+---
+
+### Task 3: Verify Observation Correctness Across Traces
+**Status**: 🔄 In Progress  
+**Priority**: Medium  
+**Files to Modify**:
+- `observe/reader.py` — Verify observation logic
+- `tests/test_observe.py` — Add trace-based tests
+
+**Deliverables**:
+- [ ] Check that `ready/pending/total` values behave sensibly across scenarios
+- [ ] Test with various resource-error traces (from Bob)
+- [ ] Document any edge cases found
+
+**Acceptance Criteria**:
+- Observations correct across all test traces
+- Edge cases documented
+
+---
+
+### Task 4: Write "Architecture Overview" Section in Mid-Year Update
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Create/Modify**:
+- `docs/MID_YEAR_UPDATE.md` — Architecture Overview section
+
+**Deliverables**:
+- [ ] Explain each module's role now that integration is complete
+- [ ] Document:
+  - `env/` — Environment management
+  - `observe/` — Observations and rewards
+  - `ops/` — Hooks and preflight
+  - `runner/` — Agent orchestration
+  - `env/actions/` — Trace operations
+
+**Acceptance Criteria**:
+- Clear explanation of each module
+- Module responsibilities documented
+- Integration points explained
+
+---
+
+## **BOB — Trace Generation + Action Validation**
+
+### Task 1: Generate Multiple Insufficient-Resource Traces (Core Requirement)
+**Status**: 🔄 In Progress  
+**Priority**: Critical  
+**Files to Create/Modify**:
+- `demo/generate_traces.py` — Script to generate trace variations
+- `demo/traces/` — Directory for generated traces
+- Use existing: `demo/make_demo_trace.py` as reference
+
+**Deliverables**:
+- [ ] Create **50–100 variations** by templating CPU/memory fields
+- [ ] Errors should exceed node capacity:
+  - >16 CPUs requested
+  - >32GB memory requested
+  - Combinations of both
+- [ ] Convert JSON → msgpack using existing tooling
+- [ ] Per David: generate multiple traces of the *same* error type
+
+**Acceptance Criteria**:
+- 50+ trace files in `demo/traces/` directory
+- Each trace has insufficient resources
+- All traces loadable (msgpack format)
+- Traces cover variety: very bad, slightly bad, mixed errors
+
+---
+
+### Task 2: Validate Action Correctness Across New Traces
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `env/actions/ops.py` — Verify all action functions
+- `tests/test_ops.py` — Add tests with new traces
+
+**Deliverables**:
+- [ ] Verify `bump_cpu_small`, `bump_mem_small`, `scale_up_replicas` work with new traces
+- [ ] Confirm each delegate returns `False` gracefully if invalid
+- [ ] Test edge cases:
+  - Deployment not found
+  - Invalid resource values
+  - Missing fields in trace
+
+**Acceptance Criteria**:
+- All actions produce valid updated traces
+- Invalid inputs handled gracefully
+- Tests pass with new trace set
+
+---
+
+### Task 3: Prepare 3–4 Canonical Traces for Team Demo
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Create**:
+- `demo/canonical/` — Directory for demo traces
+- Recommended traces:
+  - `canonical-very-bad-cpu.msgpack`
+  - `canonical-very-bad-memory.msgpack`
+  - `canonical-slightly-bad-cpu.msgpack`
+  - `canonical-mixed-errors.msgpack`
+
+**Deliverables**:
+- [ ] Select 3–4 representative traces from generated set
+- [ ] Copy to `demo/canonical/` directory
+- [ ] Document what each trace demonstrates
+
+**Acceptance Criteria**:
+- 3–4 traces ready for demo
+- Each trace represents different error scenario
+- Traces documented
+
+---
+
+### Task 4: Document Trace Format + How to Generate More
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Create**:
+- `docs/TRACE_FORMAT.md` — Trace format documentation
+
+**Deliverables**:
+- [ ] Document trace JSON structure
+- [ ] Explain how to generate new traces
+- [ ] Include examples and templates
+- [ ] Document msgpack conversion process
+- [ ] Short page for future team members (January restart)
+
+**Acceptance Criteria**:
+- New team member can generate traces
+- Format clearly documented
+- Examples provided
+
+---
+
+## **RUI — Hooks, Preflight, Setup, Cleanup**
+
+### Task 1: Test and Finalize Namespace Lifecycle for Repeated Agent Runs
+**Status**: 🔄 In Progress  
+**Priority**: High  
+**Files to Modify**:
+- `ops/hooks.py` — Verify idempotency
+- `Makefile` — Ensure `make clean-ns` works reliably
+- Test end-to-end: repeated runs
+
+**Deliverables**:
+- [ ] Verify idempotent behavior (per Erin):
+  - `make clean-ns` → run agent → run again → clean → no leftover pods
+- [ ] Test repeated runs:
+  - Run agent 5 times in a row
+  - Each run should clean up properly
+  - No namespace pollution
+- [ ] Document clean-up guarantees
+
+**Acceptance Criteria**:
+- 5 consecutive runs leave no leftover pods
+- `make clean-ns` is fully idempotent
+- Namespace returns to clean state
+
+---
+
+### Task 2: Automate Environment Setup for Multi-Trace Batch Runs
+**Status**: 🔄 In Progress  
+**Priority**: Medium  
+**Files to Create**:
+- `scripts/batch_run_traces.sh` — Script to run one_step over directory of traces
+- Coordinate with Omar for runner integration
+
+**Deliverables**:
+- [ ] Write script to run `one_step` over directory of traces
+- [ ] Ensure preflight catches all cluster/CRD issues before batch
+- [ ] Handle errors gracefully (skip failed traces, continue)
+- [ ] Collect results from batch run
+
+**Acceptance Criteria**:
+- Script runs all traces in directory
+- Preflight runs once before batch
+- Failed traces don't stop entire batch
+- Results collected/aggregated
+
+---
+
+### Task 3: Add Explicit Error Messaging for Cluster Failures
+**Status**: 🔄 In Progress  
+**Priority**: Medium  
+**Files to Modify**:
+- `ops/preflight.py` — Improve error messages
+
+**Deliverables**:
+- [ ] Make preflight outputs more helpful (per Erin's advice)
+- [ ] Add specific error messages for:
+  - Cluster not accessible
+  - Namespace missing
+  - CRD not installed
+  - Permissions issues
+- [ ] Include "how to fix" suggestions
+
+**Acceptance Criteria**:
+- Preflight errors are self-explanatory
+- "Future you" can debug cluster issues
+- Clear fix suggestions provided
+
+---
+
+### Task 4: Write "Reproducibility & Environment Setup" Section for Mid-Year Update
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files to Create/Modify**:
+- `docs/MID_YEAR_UPDATE.md` — Reproducibility section
+
+**Deliverables**:
+- [ ] Document namespace requirements
+- [ ] Document preflight expectations
+- [ ] Document cleanup guarantees
+- [ ] Include setup instructions for January restart
+
+**Acceptance Criteria**:
+- Clear setup instructions
+- Reproducibility documented
+- Cleanup behavior explained
+
+---
+
+## **Cross-Team Deliverable Tasks**
+
+Each member gets *one* of these so writing load is shared evenly.
+
+### Mid-Year Update Revision
+**Status**: 🔄 Pending  
+**Priority**: Medium  
+**Files**: `docs/MID_YEAR_UPDATE.md` (coordinate sections)
+
+**Sections to Assign**:
+- [ ] **Architecture Overview** (Cate — Task 4)
+- [ ] **System State & Integration** (Omar — summary of runner work)
+- [ ] **Trace Generation & Format** (Bob — Task 4)
+- [ ] **Reproducibility & Setup** (Rui — Task 4)
+- [ ] **Next Steps** (Diya — Task 4)
+- [ ] **Demo Walkthrough** (Diya — Task 3, coordinate with others)
+
+---
+
+### Personal Reflection
+**Status**: 🔄 Pending  
+**Priority**: Low  
+**Files**: `docs/PERSONAL_REFLECTIONS.md` or individual files
+
+**Deliverables**:
+- [ ] Each person writes 1–2 paragraphs:
+  - What you learned
+  - Challenges faced
+  - Contributions made
+  - Future goals
+
+---
+
+### Meeting with David: Technical Questions
+**Status**: 🔄 Pending  
+**Priority**: Low  
+**Deliverables**:
+- [ ] Each person prepares 1–2 technical questions
+- [ ] Questions about:
+  - Architecture decisions
+  - Next steps
+  - Integration challenges
+  - Future work
+
+---
+
+## Integration Checklist
+
+### Critical Path (Blocking Demo):
+- [ ] **Bob**: Generate 50+ traces (Task 1)
+- [ ] **Diya**: Implement real policies (Task 1)
+- [ ] **Omar**: Verify trace update flow (Task 1)
+- [ ] **Cate**: Finalize reward function (Task 1)
+- [ ] **Rui**: Verify namespace lifecycle (Task 1)
+- [ ] **Diya**: Prepare demo script (Task 3)
+
+### High Priority (Before Break):
+- [ ] **Diya**: Add safeguard logic (Task 2)
+- [ ] **Omar**: Add policy plugins (Task 2)
+- [ ] **Omar**: Test with multiple traces (Task 3)
+- [ ] **Cate**: Verify observations (Task 3)
+- [ ] **Bob**: Validate actions (Task 2)
+- [ ] **Rui**: Batch run script (Task 2)
 
 ### Medium Priority (Polish):
+- [ ] **Cate**: Architecture diagram (Task 2)
+- [ ] **Bob**: Canonical traces (Task 3)
+- [ ] **Rui**: Better error messages (Task 3)
+- [ ] **Omar**: Troubleshooting notes (Task 4)
 
-4. ✅ **Organize Tests** (Cate) - DONE
-   - ✅ Tests properly organized in `tests/` directory
-   - ✅ `test_observe.py` exists in correct location
-
-5. ✅ **Add Requirements File** - DONE
-   - ✅ Created `requirements.txt` with dependencies:
-     - `kubernetes>=29.0.0`
-     - `msgpack>=1.0.0`
-     - `pytest>=7.0.0`
-   - ✅ Installation instructions in README.md
-
-6. ✅ **Create sk-run Script** - DONE
-   - ✅ Created convenience wrapper: `sk-run` script
-   - ✅ Handles PYTHONPATH automatically
-   - ✅ Executable and ready to use
-
-### Low Priority (Documentation):
-
-7. ✅ **Create Main README** - DONE
-   - ✅ Comprehensive README.md created
-   - ✅ Setup instructions
-   - ✅ Usage examples (how to run `python runner/one_step.py`)
-   - ✅ Test instructions
-   - ✅ Troubleshooting guide
-   - ✅ Architecture overview
-   - ✅ Project structure documentation
-
-8. ✅ **Add Integration Tests** - DONE
-   - ✅ Comprehensive integration tests in `tests/test_runner_integration.py`
-   - ✅ Tests cover end-to-end flow with mocked Kubernetes API
-   - ✅ Tests cover error handling and cleanup
-   - ✅ Tests cover idempotency
+### Documentation (Before Break):
+- [ ] **All**: Mid-year update sections
+- [ ] **All**: Personal reflections
+- [ ] **Bob**: Trace format docs (Task 4)
+- [ ] **Cate**: Architecture overview (Task 4)
+- [ ] **Rui**: Reproducibility docs (Task 4)
+- [ ] **Diya**: Next steps section (Task 4)
 
 ---
 
-## Test Matrix Status
+## Key File Locations Reference
 
-- ✅ `make preflight` - **PASSING** (Makefile exists and works)
-- ✅ Unit tests (Bob) - **PASSING** (tests/test_ops.py exists and works)
-- ✅ Unit tests (Cate) - **PASSING** (tests/test_observe.py exists and organized)
-- ✅ Integration tests (Omar) - **PASSING** (tests/test_runner_integration.py comprehensive)
-- ✅ Dry-run: `python runner/one_step.py ...` - **WORKING** (CLI entry point exists)
-- ✅ Idempotency: `make clean-ns` twice - **PASSING** (Makefile exists and works)
+### Core Modules:
+- `env/sim_env.py` — SimKube environment
+- `env/actions/ops.py` — Action operations (Bob)
+- `env/actions/trace_io.py` — Trace I/O (Bob)
+- `observe/reader.py` — Observations (Cate)
+- `observe/reward.py` — Reward function (Cate)
+- `ops/hooks.py` — Hooks (Rui)
+- `ops/preflight.py` — Preflight checks (Rui)
+- `runner/one_step.py` — Agent loop (Omar)
+
+### New Files to Create:
+- `runner/policies.py` — Policy implementations (Diya + Omar)
+- `runner/safeguards.py` — Guardrail logic (Diya)
+- `scripts/batch_run_traces.sh` — Batch runner (Rui)
+- `demo/generate_traces.py` — Trace generator (Bob)
+- `docs/MID_YEAR_UPDATE.md` — Mid-year documentation (All)
+- `docs/TRACE_FORMAT.md` — Trace docs (Bob)
+- `docs/TROUBLESHOOTING.md` — Troubleshooting (Omar)
+- `docs/ARCHITECTURE.md` — Architecture (Cate)
+
+### Directories:
+- `demo/traces/` — Generated traces (Bob)
+- `demo/canonical/` — Demo traces (Bob)
+- `docs/` — All documentation
 
 ---
 
-## Estimated Time to MVP
+## Timeline
 
-- ✅ **High Priority Tasks**: COMPLETE (0 hours remaining)
-  - ✅ Runner completion: DONE
-  - ✅ Demo trace: DONE
-  - ✅ CLI entry point: DONE
-- ✅ **Medium Priority Tasks**: COMPLETE (0 hours remaining)
-  - ✅ Requirements.txt: DONE
-  - ✅ sk-run script: DONE
-- ✅ **Low Priority Tasks**: COMPLETE (0 hours remaining)
-  - ✅ Main README: DONE
-  - ✅ Demo guide: DONE (bonus)
-- **Total Remaining**: 0 hours - All tasks complete! 🎉
+**Week 1 Focus** (Days 1–5):
+- Critical path items (trace generation, real policies, verification)
+- Core functionality implementation
 
----
+**Week 2 Focus** (Days 6–10):
+- Integration testing with multiple traces
+- Demo preparation
+- Documentation
 
-## Recommendations for Completion
-
-### Person 1 (Documentation & Polish):
-1. Create `requirements.txt` with all dependencies
-2. Create main `README.md` with:
-   - Setup instructions
-   - Usage examples
-   - Test instructions
-   - Troubleshooting guide
-3. Optional: Create `sk-run` convenience script
-
-### Person 2 (Testing & Verification):
-1. Run full test suite to verify everything works
-2. Test end-to-end execution on a real cluster
-3. Document any edge cases or issues found
-4. Update README with any additional setup steps discovered
+**Buffer** (Days 11–12):
+- Polish and final review
+- Mid-year update compilation
+- Demo rehearsal
 
 ---
 
 ## Notes
 
-- ✅ All core functionality is implemented (~95% complete)
-- ✅ All team members' tasks are complete:
-  - ✅ Diya: Environment module with wrapper functions
-  - ✅ Cate: Observations & reward with organized tests
-  - ✅ Bob: Trace & actions with demo trace generated
-  - ✅ Rui: Hooks & preflight with Makefile
-  - ✅ Omar: Runner with all helper functions, CLI, and integration tests
-- ✅ MVP should work end-to-end - all integration gaps resolved
-- ✅ Test coverage is comprehensive:
-  - Unit tests for all modules
-  - Integration tests for runner
-  - Tests properly organized in `tests/` directory
-- ⚠️ Remaining work is mostly documentation and polish:
-  - Create `requirements.txt`
-  - Create main `README.md`
-  - Optional convenience scripts
-- 🎉 **MVP is functionally complete!** Ready for end-to-end testing on a real cluster.
+- **Scope**: Keep narrow — focus on insufficient-resources error type (per Erin)
+- **Priority**: Working loop > polish > documentation
+- **Documentation**: Critical for January restart (per Erin)
+- **Demo**: Must show end-to-end working system
+- **Integration**: Most internals are no-ops — need real logic now
 
+---
+
+**Last Updated**: [Date will be set when tasks begin]  
+**Next Review**: After Week 1 completion
