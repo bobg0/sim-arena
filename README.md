@@ -371,7 +371,7 @@ cat runs/summary.json | jq .
 └──────┬──────┘
        │
 ┌──────▼──────┐
-│ Wait Fixed │  Wait for duration (e.g., 120s)
+│ Wait Fixed  │  Wait for duration (e.g., 120s)
 └──────┬──────┘
        │
 ┌──────▼──────┐
