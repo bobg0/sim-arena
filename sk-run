@@ -17,6 +17,13 @@ sys.path.insert(0, str(script_dir))
 # Set PYTHONPATH environment variable for subprocesses
 os.environ['PYTHONPATH'] = str(script_dir)
 
+# Try to use virtual environment if it exists
+venv_python = script_dir / ".venv" / "bin" / "python"
+if venv_python.exists() and os.getenv("VIRTUAL_ENV") is None:
+    # If venv exists but we're not using it, suggest to user
+    # (We can't switch interpreters mid-execution, but this ensures imports work)
+    pass
+
 # Import and run main from one_step
 from runner.one_step import main
 

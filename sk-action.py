@@ -15,50 +15,13 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
 from env.actions.trace_io import load_trace, save_trace
-
+from env.actions.utils import ACTION_FUNCTIONS, diff_objects
 
 ActionFn = Callable[[dict[str, Any]], tuple[dict[str, Any], float, bool, dict[str, Any]]]
 
-OPS: dict[str, Callable[..., bool]] = {
-    "bump_cpu_small": bump_cpu_small,
-    "bump_mem_small": bump_mem_small,
-    "scale_up_replicas": scale_up_replicas,
-}
-
+OPS = ACTION_FUNCTIONS
 AVAILABLE_ACTIONS: tuple[str, ...] = tuple(sorted(OPS))
-
-_MISSING = object()
-
-
-def _diff(before: Any, after: Any, path: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-    if before is _MISSING:
-        return [{"path": path, "before": None, "after": after}]
-    if after is _MISSING:
-        return [{"path": path, "before": before, "after": None}]
-
-    if isinstance(before, Mapping) and isinstance(after, Mapping):
-        out: list[dict[str, Any]] = []
-        for key in sorted(set(before) | set(after), key=str):
-            out.extend(_diff(before.get(key, _MISSING), after.get(key, _MISSING), path + (key,)))
-        return out
-
-    if isinstance(before, list) and isinstance(after, list):
-        out: list[dict[str, Any]] = []
-        for idx, (b_item, a_item) in enumerate(zip(before, after)):
-            out.extend(_diff(b_item, a_item, path + (idx,)))
-        if len(before) != len(after):
-            longer, marker = (before, "before") if len(before) > len(after) else (after, "after")
-            for idx in range(min(len(before), len(after)), len(longer)):
-                entry = {"path": path + (idx,), "before": None, "after": None}
-                entry[marker] = longer[idx]
-                out.append(entry)
-        return out
-
-    if before != after:
-        return [{"path": path, "before": before, "after": after}]
-    return []
 
 
 def make_action(op: str, deploy: str, *, step: str | None = None, delta: int | None = None) -> ActionFn:
@@ -91,7 +54,7 @@ def make_action(op: str, deploy: str, *, step: str | None = None, delta: int | N
         before = copy.deepcopy(trace)
         after = copy.deepcopy(trace)
         changed = op_fn(after, deploy, **kwargs)
-        diff_entries = _diff(before, after)
+        diff_entries = diff_objects(before, after)
         info = {"changed": changed, "op": op, "deploy": deploy, "diff": diff_entries}
         reward = 1.0 if changed else 0.0
         return after, reward, False, info

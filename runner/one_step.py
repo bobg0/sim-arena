@@ -7,6 +7,15 @@ pre_start hook -> create_simulation -> wait_fixed -> observe -> policy -> edit t
 Usage:
   python runner/one_step.py --trace demo/trace-0001.msgpack --ns test-ns --deploy web --target 3 --duration 120
 """
+import sys
+from pathlib import Path
+
+# Add project root to Python path so imports work
+script_dir = Path(__file__).parent.absolute()
+project_root = script_dir.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 import argparse
 import json
 import logging
@@ -40,9 +49,14 @@ except Exception as e:
 
 try:
     from env.actions.trace_io import load_trace, save_trace
-    from env.actions.ops import bump_cpu_small
 except Exception as e:
-    print("ERROR: failed to import actions.trace_io or actions.ops. Make sure /actions exists.", file=sys.stderr)
+    print("ERROR: failed to import actions.trace_io. Make sure /actions exists.", file=sys.stderr)
+    raise
+
+try:
+    from runner.action_applier import apply_action_from_policy
+except Exception as e:
+    print("ERROR: failed to import action_applier. Make sure runner/action_applier.py exists.", file=sys.stderr)
     raise
 
 # ---- Logging setup ----
@@ -97,10 +111,12 @@ def simple_policy(obs: dict, deploy: str):
     Returns: dict describing action: {"type": "bump_cpu_small", "deploy": deploy} or {"type": "noop"}
     """
     pending = int(obs.get("pending", 0))
-    if pending > 0:
-        return {"type": "bump_cpu_small", "deploy": deploy}
-    return {"type": "noop"}
-
+    # if pending > 0:
+    return {"type": "bump_cpu_small", "deploy": deploy}
+    # return {"type": "noop"}
+# pending because have too much cpu, 
+# bumping cpu will still make pending 
+# probably neeed to reduce cpu for the pending to actually 
 # ---- Main orchestration ----
 def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0):
     random.seed(seed)
@@ -142,29 +158,21 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         action = simple_policy(obs, deploy)
         logger.info(f"Policy chose action: {action}")
         
-        # 6) Load trace and apply action (if any)
-        trace_obj = None
-        trace_changed = False
+        # 6) Apply action to trace (using action_applier module)
+        logger.info(f"Applying action from policy: {action}")
+        action_info = None
         try:
-            trace_obj = load_trace(trace_path)
+            out_trace_path, action_info = apply_action_from_policy(
+                trace_path=trace_path,
+                action=action,
+                deploy=deploy,
+                output_path=out_trace_path,
+            )
+            trace_changed = action_info.get("changed", False)
+            logger.info(f"Action application complete. Changed: {trace_changed}")
         except Exception as e:
-            logger.error(f"Failed to load trace {trace_path}: {e}")
+            logger.error(f"Failed to apply action to trace {trace_path}: {e}")
             raise
-        
-        if action["type"] == "bump_cpu_small":
-            logger.info("Applying bump_cpu_small to trace...")
-            ok = bump_cpu_small(trace_obj, deploy, step="500m")
-            if ok:
-                trace_changed = True
-                save_trace(trace_obj, out_trace_path)
-                logger.info(f"Saved modified trace to {out_trace_path}")
-            else:
-                logger.warning("bump_cpu_small returned False (deployment not found or no-op). Saving original trace as out.")
-                save_trace(trace_obj, out_trace_path)
-        else:
-            # noop - still write out a copy to .tmp
-            logger.info("No-op chosen; writing copy of trace to out path.")
-            save_trace(trace_obj, out_trace_path)
         
         # 7) compute reward
         r = compute_reward(obs, target_total=target, T_s=duration)
@@ -180,12 +188,19 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "trace_out": out_trace_path,
             "obs": obs,
             "action": action,
+            "action_info": action_info if action_info else {},
             "reward": int(r),
             "duration_s": duration,
             "seed": seed,
         }
         write_step_record(record)
         update_summary(record)
+        
+        # Print summary of step results
+        logger.info("=" * 60)
+        logger.info(f"Step Summary: action={action.get('type')}, reward={r}, changed={trace_changed}")
+        logger.info(f"Observation: ready={obs.get('ready')}, pending={obs.get('pending')}, total={obs.get('total')}")
+        logger.info("=" * 60)
     
     finally:
         # Attempt best-effort cleanup: delete simulation CR if function available
