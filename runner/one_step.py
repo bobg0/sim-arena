@@ -214,7 +214,12 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
     elapsed = time.time() - start_time
     logger.info(f"one_step completed in {elapsed:.2f}s")
-    return 0
+    # Return structured result for programmatic use
+    return {
+        "status": 0,
+        "elapsed_s": elapsed,
+        "record": record
+}
 
 def main():
     parser = argparse.ArgumentParser(description="Run one agent step")
@@ -237,7 +242,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-## CALL CATES OBSERVE FUNCTION
 
 # KUBERNETES NAME SPACE AND TARGET TOTAL NUMBER OF PODS
