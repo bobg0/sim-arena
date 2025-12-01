@@ -2,6 +2,8 @@
 
 A reinforcement learning environment for Kubernetes autoscaling using SimKube. This MVP implements a single, reproducible agent step that can be run end-to-end on a real Kubernetes cluster.
 
+![Flow Diagram, updated November 30](FlowDiagramNov30.png)
+
 ## Overview
 
 Sim-Arena provides:
