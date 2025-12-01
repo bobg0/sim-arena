@@ -27,9 +27,9 @@ from pathlib import Path
 import hashlib
 import random
 
-# ---- Try importing project modules (fail fast with helpful message) ----
+# Try importing project modules (fail fast with helpful message)
 try:
-    from ops.hooks import run_hooks
+    from ops.hooks import run_hooks # NOT YET WORKING
 except Exception as e:
     print("ERROR: failed to import ops.hooks.run_hooks. Make sure /ops is on PYTHONPATH and file exists.", file=sys.stderr)
     raise
@@ -243,4 +243,18 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 
-# KUBERNETES NAME SPACE AND TARGET TOTAL NUMBER OF PODS
+
+result = one_step(
+    trace_path="demo/trace-0001.msgpack",
+    namespace="test-ns",
+    deploy="web",
+    target=3,
+    duration=120,
+    seed=42
+)
+
+print(result["status"])       # 0 if successful
+print(result["elapsed_s"])    # runtime
+print(result["record"]["obs"])    # observation dict
+print(result["record"]["reward"]) # reward value (0 or 1)
+
