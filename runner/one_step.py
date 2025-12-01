@@ -111,9 +111,9 @@ def simple_policy(obs: dict, deploy: str):
     Returns: dict describing action: {"type": "bump_cpu_small", "deploy": deploy} or {"type": "noop"}
     """
     pending = int(obs.get("pending", 0))
-    # if pending > 0:
-    return {"type": "bump_cpu_small", "deploy": deploy}
-    # return {"type": "noop"}
+    if pending > 0: # WAS COMMENTED OUT
+        return {"type": "bump_cpu_small", "deploy": deploy}
+    return {"type": "noop"} # WAS COMMENTED OUT
 # pending because have too much cpu, 
 # bumping cpu will still make pending 
 # probably neeed to reduce cpu for the pending to actually 
