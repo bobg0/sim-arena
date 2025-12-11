@@ -9,6 +9,8 @@ Usage:
 """
 import sys
 from pathlib import Path
+# Policies: loadable policy registry (will import runner.policies)
+from runner.policies import POLICY_REGISTRY, get_policy
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -101,24 +103,9 @@ def update_summary(record: dict) -> None:
     
     with SUMMARY_LOG.open("w") as f:
         json.dump(summary, f, indent=2)
-
-# ---- Policy (heuristic) ----
-def simple_policy(obs: dict, deploy: str):
-    """
-    Heuristic policy:
-      - if pending > 0: request bump_cpu_small
-      - else: noop
-    Returns: dict describing action: {"type": "bump_cpu_small", "deploy": deploy} or {"type": "noop"}
-    """
-    pending = int(obs.get("pending", 0))
-    if pending > 0: # WAS COMMENTED OUT
-        return {"type": "bump_cpu_small", "deploy": deploy}
-    return {"type": "noop"} # WAS COMMENTED OUT
-# pending because have too much cpu, 
-# bumping cpu will still make pending 
-# probably neeed to reduce cpu for the pending to actually 
+ 
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic"):
     random.seed(seed)
     
     timestamp = datetime.utcnow().isoformat() + "Z"
@@ -128,10 +115,12 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     out_trace_path = str(tmp_dir / "trace-next.msgpack")
     
     sim_name = f"diag-{deterministic_id(trace_path, namespace, deploy, target, timestamp)}"
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={trace_path}, deploy={deploy}, target={target}, duration={duration}")
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
 
     sim_uid = None
     start_time = time.time()
+    record = None
+    trace_changed = False
 
     try:
         # 1) pre_start hook
@@ -155,13 +144,15 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Observation: {obs}")
         
         # 5) policy decision
-        action = simple_policy(obs, deploy)
-        logger.info(f"Policy chose action: {action}")
+        policy_picked = get_policy(policy_name)
+        action = policy_picked(obs=obs, deploy=deploy)
+        logger.info(f"Policy '{policy_name}' chose action: {action}")
         
         # 6) Apply action to trace (using action_applier module)
         logger.info(f"Applying action from policy: {action}")
-        action_info = None
+        action_info = {}
         try:
+            # asume apply_action_from_policy returns (out_trace_path, action_info)
             out_trace_path, action_info = apply_action_from_policy(
                 trace_path=trace_path,
                 action=action,
@@ -173,6 +164,16 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         except Exception as e:
             logger.error(f"Failed to apply action to trace {trace_path}: {e}")
             raise
+        
+        # Ensure output trace actually exists; try save_trace fallback if action_applier didn't write it
+        try:
+            if not Path(out_trace_path).exists():
+                logger.warning(f"Expected out trace at {out_trace_path} not present. Attempting save_trace fallback.")
+                # load original trace and save to out_trace_path (no-op) to ensure .tmp file present
+                trace_obj = load_trace(trace_path)
+                save_trace(trace_obj, out_trace_path)
+        except Exception as e:
+            logger.warning(f"Failed fallback save_trace: {e}")
         
         # 7) compute reward
         r = compute_reward(obs, target_total=target, T_s=duration)
@@ -229,6 +230,8 @@ def main():
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
+
     args = parser.parse_args()
     
     return one_step(
@@ -238,6 +241,7 @@ def main():
         target=args.target,
         duration=args.duration,
         seed=args.seed,
+        policy_name=args.policy,
     )
 
 if __name__ == "__main__":
