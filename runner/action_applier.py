@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, MutableMapping
 
 from env.actions.trace_io import load_trace, save_trace
-from env.actions.utils import ACTION_DEFAULTS, ACTION_FUNCTIONS, diff_objects
+# from env.actions.utils import ACTION_DEFAULTS, ACTION_FUNCTIONS, diff_objects
 
 logger = logging.getLogger("action_applier")
 
