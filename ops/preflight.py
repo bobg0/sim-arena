@@ -68,6 +68,7 @@ def parse_version(version_str: str) -> tuple:
 def check_kubectl() -> bool:
     """Check if kubectl is available and meets minimum version."""
     print("Checking kubectl availability...")
+    import subprocess
     try:
         result = subprocess.run(
             ["kubectl", "version", "--client", "--short"],
