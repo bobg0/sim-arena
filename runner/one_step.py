@@ -247,18 +247,17 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 
-
-result = one_step(
+    result = one_step(
     trace_path="demo/trace-0001.msgpack",
     namespace="test-ns",
     deploy="web",
     target=3,
     duration=120,
     seed=42
-)
+    )
 
-print(result["status"])       # 0 if successful
-print(result["elapsed_s"])    # runtime
-print(result["record"]["obs"])    # observation dict
-print(result["record"]["reward"]) # reward value (0 or 1)
+    print(result["status"])       # 0 if successful
+    print(result["elapsed_s"])    # runtime
+    print(result["record"]["obs"])    # observation dict
+    print(result["record"]["reward"]) # reward value (0 or 1)
 
