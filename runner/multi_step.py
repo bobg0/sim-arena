@@ -1,0 +1,136 @@
+"""
+runner/multi_step.py
+
+Run multiple sequential agent steps (episodes) using the existing one_step runner.
+
+Sample usage:
+
+python runner/multi_step.py \
+  --trace demo/trace-0001.msgpack \
+  --ns test-ns \
+  --deploy web \
+  --target 3 \
+  --steps 5
+"""
+
+import sys
+from pathlib import Path
+import argparse
+import logging
+import time
+
+# Add project root to Python path
+script_dir = Path(__file__).parent.absolute()
+project_root = script_dir.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from runner.one_step import one_step
+
+logger = logging.getLogger("multi_step")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
+
+def run_episode(
+    trace_path: str,
+    namespace: str,
+    deploy: str,
+    target: int,
+    duration: int,
+    steps: int,
+    seed: int = 0,
+    policy_name: str = "heuristic",
+):
+    """
+    Run a multi-step episode.
+
+    Returns:
+        dict with episode summary
+    """
+    logger.info(
+        f"Starting episode: steps={steps}, trace={trace_path}, policy={policy_name}"
+    )
+
+    current_trace = trace_path
+    episode_records = []
+    total_reward = 0
+    start_time = time.time()
+
+    for step_idx in range(steps):
+        logger.info("-" * 60)
+        logger.info(f"Episode step {step_idx + 1}/{steps}")
+        logger.info(f"Using trace: {current_trace}")
+
+        result = one_step(
+            trace_path=current_trace,
+            namespace=namespace,
+            deploy=deploy,
+            target=target,
+            duration=duration,
+            seed=seed + step_idx,  # deterministic but varied
+            policy_name=policy_name,
+        )
+
+        if result["status"] != 0:
+            logger.error(f"Step {step_idx} failed, aborting episode.")
+            break
+
+        record = result["record"]
+        episode_records.append(record)
+
+        # Update trace for next step
+        current_trace = record["trace_out"]
+
+        # Accumulate reward
+        total_reward += record.get("reward", 0)
+
+    elapsed = time.time() - start_time
+
+    logger.info("=" * 60)
+    logger.info("Episode completed")
+    logger.info(f"Steps executed: {len(episode_records)}")
+    logger.info(f"Total reward: {total_reward}")
+    logger.info(f"Elapsed time: {elapsed:.2f}s")
+    logger.info(f"Final trace: {current_trace}")
+    logger.info("=" * 60)
+
+    return {
+        "status": 0,
+        "steps_executed": len(episode_records),
+        "total_reward": total_reward,
+        "elapsed_s": elapsed,
+        "final_trace": current_trace,
+        "records": episode_records,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run multiple RL steps")
+    parser.add_argument("--trace", required=True, help="Initial trace path")
+    parser.add_argument("--ns", "--namespace", dest="namespace", required=True)
+    parser.add_argument("--deploy", required=True)
+    parser.add_argument("--target", type=int, required=True)
+    parser.add_argument("--duration", type=int, default=60)
+    parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--policy", type=str, default="heuristic")
+
+    args = parser.parse_args()
+
+    return run_episode(
+        trace_path=args.trace,
+        namespace=args.namespace,
+        deploy=args.deploy,
+        target=args.target,
+        duration=args.duration,
+        steps=args.steps,
+        seed=args.seed,
+        policy_name=args.policy,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
