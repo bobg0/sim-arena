@@ -151,8 +151,108 @@
       "reward": 0,
       "duration_s": 120,
       "seed": 0
+    },
+    {
+      "timestamp": "2026-01-24T01:13:13.158659Z",
+      "sim_name": "diag-3b52df1e",
+      "sim_uid": "diag-3b52df1e",
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "op": "noop",
+        "deploy": "web",
+        "diff": []
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0
+    },
+    {
+      "timestamp": "2026-01-24T02:11:29.553059Z",
+      "sim_name": "diag-ee552241",
+      "sim_uid": "diag-ee552241",
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "op": "noop",
+        "deploy": "web",
+        "diff": []
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0
+    },
+    {
+      "timestamp": "2026-01-24T02:18:04.417051Z",
+      "sim_name": "diag-93371edf",
+      "sim_uid": "diag-93371edf",
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "op": "noop",
+        "deploy": "web",
+        "diff": []
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0
+    },
+    {
+      "timestamp": "2026-01-24T02:21:05.780017Z",
+      "sim_name": "diag-e2257d12",
+      "sim_uid": "diag-e2257d12",
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "op": "noop",
+        "deploy": "web",
+        "diff": []
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 42
     }
   ],
   "total_rewards": 0,
-  "total_steps": 6
+  "total_steps": 10
 }
