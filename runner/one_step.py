@@ -36,6 +36,7 @@ from observe.reader import observe
 from observe.reward import reward as compute_reward
 from env.actions.trace_io import load_trace, save_trace
 from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
+from runner.safeguards import validate_action
 
 # ---- Logging setup ----
 LOG_DIR = Path("runs")
@@ -52,9 +53,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger("one_step")
 
+# ---- Helper function to extract current resource state from trace ----
+def _extract_current_state(trace: list, deploy: str) -> dict:
+    """
+    Extract current CPU, memory, and replicas for a deployment from the trace.
+    Returns dict with 'cpu', 'memory', 'replicas' keys.
+    """
+    current_state = {
+        "cpu": "0m",
+        "memory": "0Mi",
+        "replicas": 0
+    }
+    
+    # Search through trace objects for the target deployment
+    for obj in trace:
+        if obj.get("kind") == "Deployment" and obj.get("metadata", {}).get("name") == deploy:
+            spec = obj.get("spec", {})
+            template = spec.get("template", {})
+            containers = template.get("spec", {}).get("containers", [])
+            
+            # Get replicas
+            current_state["replicas"] = spec.get("replicas", 0)
+            
+            # Get CPU and memory from first container (typical pattern)
+            if containers:
+                resources = containers[0].get("resources", {})
+                requests = resources.get("requests", {})
+                current_state["cpu"] = requests.get("cpu", "0m")
+                current_state["memory"] = requests.get("memory", "0Mi")
+            
+            break  # Found the deployment, stop searching
+    
+    return current_state
+
 # ---- Action application (simplified from action_applier.py) ----
 def apply_action(trace_path: str, action: dict, deploy: str, output_path: str) -> tuple[str, dict]:
-    """Apply an action to a trace file. Returns (output_path, info_dict)."""
+    """Apply an action to a trace file with safeguard validation. Returns (output_path, info_dict)."""
+    # Load trace to get current state for validation
+    trace = load_trace(trace_path)
+    
+    # Extract current resource values from the trace for the target deployment
+    current_state = _extract_current_state(trace, deploy)
+    
+    # Validate action with current state
+    is_valid, error_msg = validate_action(action, current_state=current_state)
+    if not is_valid:
+        logger.warning(f"⚠️  Action blocked by safeguards: {error_msg}")
+        # Return unchanged trace
+        save_trace(trace, output_path)
+        return output_path, {
+            "changed": False,
+            "action_type": action.get("type"),
+            "blocked": True,
+            "error": error_msg
+        }
+    
     trace = load_trace(trace_path)
     action_type = action.get("type", "noop")
     changed = False
@@ -74,7 +127,7 @@ def apply_action(trace_path: str, action: dict, deploy: str, output_path: str) -
     else:
         raise ValueError(f"Unknown action type: {action_type}")
     
-    info = {"changed": changed, "action_type": action_type}
+    info = {"changed": changed, "action_type": action_type, "blocked": False}
     return output_path, info
 
 # ---- Helper functions ----
