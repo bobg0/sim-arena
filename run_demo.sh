@@ -79,3 +79,5 @@ echo "To view cluster state:"
 echo "  kubectl get pods -n test-ns"
 echo "  kubectl get simulations"
 
+
+

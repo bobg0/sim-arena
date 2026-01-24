@@ -29,37 +29,13 @@ from pathlib import Path
 import hashlib
 import random
 
-# Try importing project modules (fail fast with helpful message)
-try:
-    from ops.hooks import run_hooks # NOT YET WORKING
-except Exception as e:
-    print("ERROR: failed to import ops.hooks.run_hooks. Make sure /ops is on PYTHONPATH and file exists.", file=sys.stderr)
-    raise
-
-try:
-    from env import create_simulation, wait_fixed, delete_simulation
-except Exception as e:
-    print("ERROR: failed to import env functions. Make sure /env/__init__.py exists.", file=sys.stderr)
-    raise
-
-try:
-    from observe.reader import observe
-    from observe.reward import reward as compute_reward
-except Exception as e:
-    print("ERROR: failed to import observe.reader or observe.reward. Make sure /observe exists.", file=sys.stderr)
-    raise
-
-try:
-    from env.actions.trace_io import load_trace, save_trace
-except Exception as e:
-    print("ERROR: failed to import actions.trace_io. Make sure /actions exists.", file=sys.stderr)
-    raise
-
-try:
-    from runner.action_applier import apply_action_from_policy
-except Exception as e:
-    print("ERROR: failed to import action_applier. Make sure runner/action_applier.py exists.", file=sys.stderr)
-    raise
+# Import project modules
+from ops.hooks import run_hooks
+from env import create_simulation, wait_fixed, delete_simulation
+from observe.reader import observe
+from observe.reward import reward as compute_reward
+from env.actions.trace_io import load_trace, save_trace
+from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
 
 # ---- Logging setup ----
 LOG_DIR = Path("runs")
@@ -75,6 +51,31 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("one_step")
+
+# ---- Action application (simplified from action_applier.py) ----
+def apply_action(trace_path: str, action: dict, deploy: str, output_path: str) -> tuple[str, dict]:
+    """Apply an action to a trace file. Returns (output_path, info_dict)."""
+    trace = load_trace(trace_path)
+    action_type = action.get("type", "noop")
+    changed = False
+    
+    if action_type == "noop":
+        # No change, just save trace as-is
+        save_trace(trace, output_path)
+    elif action_type == "bump_cpu_small":
+        changed = bump_cpu_small(trace, deploy, step=action.get("step", "500m"))
+        save_trace(trace, output_path)
+    elif action_type == "bump_mem_small":
+        changed = bump_mem_small(trace, deploy, step=action.get("step", "256Mi"))
+        save_trace(trace, output_path)
+    elif action_type == "scale_up_replicas":
+        changed = scale_up_replicas(trace, deploy, delta=action.get("delta", 1))
+        save_trace(trace, output_path)
+    else:
+        raise ValueError(f"Unknown action type: {action_type}")
+    
+    info = {"changed": changed, "action_type": action_type}
+    return output_path, info
 
 # ---- Helper functions ----
 
@@ -148,32 +149,11 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         action = policy_picked(obs=obs, deploy=deploy)
         logger.info(f"Policy '{policy_name}' chose action: {action}")
         
-        # 6) Apply action to trace (using action_applier module)
-        logger.info(f"Applying action from policy: {action}")
-        action_info = {}
-        try:
-            # asume apply_action_from_policy returns (out_trace_path, action_info)
-            out_trace_path, action_info = apply_action_from_policy(
-                trace_path=trace_path,
-                action=action,
-                deploy=deploy,
-                output_path=out_trace_path,
-            )
-            trace_changed = action_info.get("changed", False)
-            logger.info(f"Action application complete. Changed: {trace_changed}")
-        except Exception as e:
-            logger.error(f"Failed to apply action to trace {trace_path}: {e}")
-            raise
-        
-        # Ensure output trace actually exists; try save_trace fallback if action_applier didn't write it
-        try:
-            if not Path(out_trace_path).exists():
-                logger.warning(f"Expected out trace at {out_trace_path} not present. Attempting save_trace fallback.")
-                # load original trace and save to out_trace_path (no-op) to ensure .tmp file present
-                trace_obj = load_trace(trace_path)
-                save_trace(trace_obj, out_trace_path)
-        except Exception as e:
-            logger.warning(f"Failed fallback save_trace: {e}")
+        # 6) Apply action to trace
+        logger.info(f"Applying action: {action}")
+        out_trace_path, action_info = apply_action(trace_path, action, deploy, out_trace_path)
+        trace_changed = action_info.get("changed", False)
+        logger.info(f"Action complete. Changed: {trace_changed}")
         
         # 7) compute reward
         r = compute_reward(obs, target_total=target, T_s=duration)

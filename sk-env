@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# CLI wrapper for sk_env_run.py
-# This script calls sk_env_run.py with all arguments passed through
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-python3 "${SCRIPT_DIR}/sk_env_run.py" "$@"
-

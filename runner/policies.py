@@ -23,10 +23,15 @@ def policy_heuristic(obs: dict, deploy: str):
 
 
 def policy_random(obs: dict, deploy: str):
-    # choose between noop or bump_cpu_small randomly
-    if random.random() < 0.5:
-        return {"type": "noop"}
-    return {"type": "bump_cpu_small", "deploy": deploy}
+    """Randomly selects from all available actions."""
+    # Available action types (excluding noop for more interesting behavior)
+    actions = [
+        {"type": "bump_cpu_small", "deploy": deploy},
+        {"type": "bump_mem_small", "deploy": deploy},
+        {"type": "scale_up_replicas", "deploy": deploy, "delta": 1},
+        {"type": "noop"},  # Include noop as an option
+    ]
+    return random.choice(actions)
 
 def policy_always_bump_cpu(obs: dict, deploy: str):
     return {"type": "bump_cpu_small", "deploy": deploy}
@@ -34,12 +39,17 @@ def policy_always_bump_cpu(obs: dict, deploy: str):
 def policy_always_bump_mem(obs: dict, deploy: str):
     return {"type": "bump_mem_small", "deploy": deploy}
 
+def policy_scale_replicas(obs: dict, deploy: str):
+    """Always scales up replicas by 1."""
+    return {"type": "scale_up_replicas", "deploy": deploy, "delta": 1}
+
 POLICY_REGISTRY: Dict[str, Callable] = {
     "noop": policy_noop,
     "heuristic": policy_heuristic,
     "random": policy_random,
     "bump_cpu": policy_always_bump_cpu,
     "bump_mem": policy_always_bump_mem,
+    "scale_replicas": policy_scale_replicas,
 }
 
 def get_policy(name: str):
