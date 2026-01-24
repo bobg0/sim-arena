@@ -245,7 +245,7 @@ def main():
     )
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # sys.exit(main())
 
     result = one_step(
     trace_path="demo/trace-0001.msgpack",
@@ -260,4 +260,4 @@ if __name__ == "__main__":
     print(result["elapsed_s"])    # runtime
     print(result["record"]["obs"])    # observation dict
     print(result["record"]["reward"]) # reward value (0 or 1)
-
+    

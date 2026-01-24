@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "metadata": {
+    "description": "Synthetic trace #0073 - CPU: 14.5, Memory: 44.8GB, Replicas: 3"
+  },
+  "events": [
+    {
+      "ts": 1730390473,
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "replicas": 3,
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "4.8285421716384445",
+                        "memory": "14.925646783970608Gi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "deleted_objs": []
+    }
+  ]
+}
