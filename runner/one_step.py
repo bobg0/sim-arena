@@ -65,24 +65,27 @@ def _extract_current_state(trace: list, deploy: str) -> dict:
         "replicas": 0
     }
     
-    # Search through trace objects for the target deployment
-    for obj in trace:
-        if obj.get("kind") == "Deployment" and obj.get("metadata", {}).get("name") == deploy:
-            spec = obj.get("spec", {})
-            template = spec.get("template", {})
-            containers = template.get("spec", {}).get("containers", [])
-            
-            # Get replicas
-            current_state["replicas"] = spec.get("replicas", 0)
-            
-            # Get CPU and memory from first container (typical pattern)
-            if containers:
-                resources = containers[0].get("resources", {})
-                requests = resources.get("requests", {})
-                current_state["cpu"] = requests.get("cpu", "0m")
-                current_state["memory"] = requests.get("memory", "0Mi")
-            
-            break  # Found the deployment, stop searching
+    # Search through trace events for the target deployment
+    events = trace.get("events", [])
+    for event in events:
+        applied_objs = event.get("applied_objs", [])
+        for obj in applied_objs:
+            if obj.get("kind") == "Deployment" and obj.get("metadata", {}).get("name") == deploy:
+                spec = obj.get("spec", {})
+                template = spec.get("template", {})
+                containers = template.get("spec", {}).get("containers", [])
+                
+                # Get replicas
+                current_state["replicas"] = spec.get("replicas", 0)
+                
+                # Get CPU and memory from first container (typical pattern)
+                if containers:
+                    resources = containers[0].get("resources", {})
+                    requests = resources.get("requests", {})
+                    current_state["cpu"] = requests.get("cpu", "0m")
+                    current_state["memory"] = requests.get("memory", "0Mi")
+                
+                return current_state  # Found it, return early
     
     return current_state
 
