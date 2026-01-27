@@ -10,7 +10,7 @@ Usage:
 import sys
 from pathlib import Path
 # Policies: loadable policy registry (will import runner.policies)
-from runner.policies import POLICY_REGISTRY, get_policy
+from policies import POLICY_REGISTRY, get_policy # remove runner.policies
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
