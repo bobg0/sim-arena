@@ -11,10 +11,10 @@ Traceback (most recent call last):
   File "C:\Users\OmRJi\OneDrive - Harvey Mudd College\Desktop\Clinic\sim-arena\ops\hooks.py", line 17, in __init__
     config.load_kube_config()
   File "C:\Users\OmRJi\OneDrive - Harvey Mudd College\Desktop\Clinic\sim-arena\.venv\Lib\site-packages\kubernetes\config\kube_config.py", line 836, in load_kube_config       
-    loader = _get_kube_config_loader(
+    loader = _get_kube_config_loader
              ^^^^^^^^^^^^^^^^^^^^^^^^
   File "C:\Users\OmRJi\OneDrive - Harvey Mudd College\Desktop\Clinic\sim-arena\.venv\Lib\site-packages\kubernetes\config\kube_config.py", line 793, in _get_kube_config_loader
-    raise ConfigException(
+    raise ConfigException
 kubernetes.config.config_exception.ConfigException: Invalid kube-config file. No configuration found.
 
 
