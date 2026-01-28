@@ -1,7 +1,28 @@
 {
   "version": 1,
   "metadata": {
-    "description": "Synthetic trace for local development"
+    "description": "Synthetic trace for local development",
+    "expected_behavior": {
+      "what_happens": "SimKube driver replays this trace and creates resources in the cluster",
+      "resources_created": [
+        "1x Deployment named 'web' with 2 replicas",
+        "2x Pods with label 'app=web' in namespace 'default'",
+        "Each pod: 500m CPU, 512Mi memory"
+      ],
+      "expected_observations": {
+        "if_namespace_matches": {
+          "namespace": "default",
+          "deploy": "web",
+          "result": "observe() should return {'ready': 2, 'pending': 0, 'total': 2} after pods start"
+        },
+        "if_namespace_mismatch": {
+          "observe_namespace": "test-ns",
+          "actual_namespace": "default",
+          "result": "observe() returns {'ready': 0, 'pending': 0, 'total': 0} because no pods in test-ns"
+        }
+      },
+      "note": "The trace creates resources in 'default' namespace, so observe(namespace='test-ns') will return zeros. Either change trace to use 'test-ns' or change observe() to look in 'default'."
+    }
   },
   "events": [
     {
