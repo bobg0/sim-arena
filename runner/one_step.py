@@ -166,13 +166,20 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     random.seed(seed)
     
     timestamp = datetime.utcnow().isoformat() + "Z"
-    trace_path = str(trace_path)
+    local_trace_path = str(trace_path)  # Keep local path for file operations
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
     out_trace_path = str(tmp_dir / "trace-next.msgpack")
     
-    sim_name = f"diag-{deterministic_id(trace_path, namespace, deploy, target, timestamp)}"
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
+    # Convert to cluster-accessible URL for SimKube
+    if not local_trace_path.startswith(("file://", "http://", "https://")):
+        trace_filename = Path(local_trace_path).name
+        cluster_trace_path = f"file:///data/{trace_filename}"
+    else:
+        cluster_trace_path = local_trace_path
+    
+    sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -185,9 +192,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         run_hooks("pre_start", namespace)
         logger.info("pre_start hooks completed.")
         
-        # 2) create simulation CR
+        # 2) create simulation CR (use cluster path)
         logger.info("Creating simulation CR...")
-        sim_uid = create_simulation(name=sim_name, trace_path=trace_path, duration_s=duration, namespace=namespace)
+        sim_uid = create_simulation(name=sim_name, trace_path=cluster_trace_path, duration_s=duration, namespace=namespace)
         logger.info(f"Created simulation (uid={sim_uid}).")
         
         # 3) wait fixed (block until observation time)
@@ -205,9 +212,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         action = policy_picked(obs=obs, deploy=deploy)
         logger.info(f"Policy '{policy_name}' chose action: {action}")
         
-        # 6) Apply action to trace
+        # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
-        out_trace_path, action_info = apply_action(trace_path, action, deploy, out_trace_path)
+        out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
         
@@ -221,7 +228,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "sim_name": sim_name,
             "sim_uid": sim_uid,
             "namespace": namespace,
-            "trace_in": trace_path,
+            "trace_in": local_trace_path,
             "trace_out": out_trace_path,
             "obs": obs,
             "action": action,
@@ -281,19 +288,5 @@ def main():
     )
 
 if __name__ == "__main__":
-    # sys.exit(main())
-
-    result = one_step(
-    trace_path="demo/trace-0001.msgpack",
-    namespace="test-ns",
-    deploy="web",
-    target=3,
-    duration=120,
-    seed=42
-    )
-
-    print(result["status"])       # 0 if successful
-    print(result["elapsed_s"])    # runtime
-    print(result["record"]["obs"])    # observation dict
-    print(result["record"]["reward"]) # reward value (0 or 1)
+    sys.exit(main())
     
