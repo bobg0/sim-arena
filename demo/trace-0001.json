@@ -1,5 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
+  "config": {},
+  "pod_lifecycles": {},
+  "index": {},
   "metadata": {
     "description": "Synthetic trace for local development",
     "expected_behavior": {
