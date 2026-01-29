@@ -49,6 +49,21 @@ class SimEnv:
         """
         if self._crd_installed():
             # Simulation CRD is cluster-scoped, so don't include namespace in metadata
+            # body = {
+            #     "apiVersion": f"{SIM_GROUP}/{SIM_VER}",
+            #     "kind": "Simulation",
+            #     "metadata": {"name": name},  # Cluster-scoped: no namespace in metadata
+            #     "spec": {
+            #         "driver": {
+            #             "image": driver_image,
+            #             "namespace": namespace,  # Driver runs in this namespace
+            #             "port": int(driver_port),
+            #             "tracePath": trace_path,
+            #         },
+            #         "duration": f"{int(duration_s)}s",
+            #     },
+            # }
+
             body = {
                 "apiVersion": f"{SIM_GROUP}/{SIM_VER}",
                 "kind": "Simulation",
@@ -59,6 +74,16 @@ class SimEnv:
                         "namespace": namespace,  # Driver runs in this namespace
                         "port": int(driver_port),
                         "tracePath": trace_path,
+                    },
+                    "hooks": {
+                        "preStartHooks": [{
+                            "args": [
+                                "apply",
+                                "-f",
+                                "/config/kwok"
+                            ],
+                            "cmd": "kubectl"
+                        }]
                     },
                     "duration": f"{int(duration_s)}s",
                 },
