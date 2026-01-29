@@ -4,7 +4,7 @@ runner/one_step_copyb.py
 One reproducible agent step:
 pre_start -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> reward -> log -> cleanup
 """
-
+#your harded
 import argparse
 import hashlib
 import json
@@ -135,7 +135,7 @@ def one_step(
     duration: int,
     seed: int = 0,
     policy_name: str = "heuristic",
-    driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.1",
+    driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.2",
 ) -> dict:
     random.seed(seed)
 
@@ -147,11 +147,12 @@ def one_step(
     out_trace_path = str(tmp_dir / "trace-next.msgpack")
     _log_trace_version(local_trace_path)
 
-    if not local_trace_path.startswith(("file://", "http://", "https://")):
-        trace_filename = Path(local_trace_path).name
-        cluster_trace_path = f"file:///data/{trace_filename}"
-    else:
-        cluster_trace_path = local_trace_path
+    # if not local_trace_path.startswith(("file://", "http://", "https://")):
+    #     trace_filename = Path(local_trace_path).name
+    #     cluster_trace_path = f"file:///data/{trace_filename}"
+    # else:
+    # cluster_trace_path = local_trace_path
+    cluster_trace_path =  "file:///data/trace-0001.msgpack"
 
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     logger.info(
@@ -258,7 +259,7 @@ def main() -> int:
     p.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     p.add_argument("--seed", type=int, default=0, help="Random seed")
     p.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry key)")
-    p.add_argument("--driver-image", type=str, default="quay.io/appliedcomputing/sk-driver:v2.4.1", help="SimKube driver image")
+    p.add_argument("--driver-image", type=str, default="quay.io/appliedcomputing/sk-driver:v2.4.2", help="SimKube driver image")
 
     args = p.parse_args()
     one_step(

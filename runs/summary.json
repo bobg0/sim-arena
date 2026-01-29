@@ -444,8 +444,153 @@
       "reward": 0,
       "duration_s": 120,
       "seed": 42
+    },
+    {
+      "timestamp": "2026-01-29T18:00:14.826526Z",
+      "sim_name": "diag-b5fa6c18",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-b5fa6c18",
+        "ns": "test-ns"
+      },
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-29T18:07:09.671152Z",
+      "sim_name": "diag-7208e89f",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-7208e89f",
+        "ns": "test-ns"
+      },
+      "namespace": "test-ns",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-29T18:11:21.395702Z",
+      "sim_name": "diag-c68a274c",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-c68a274c",
+        "ns": "simkube"
+      },
+      "namespace": "simkube",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-29T18:20:19.698356Z",
+      "sim_name": "diag-818449f8",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-818449f8",
+        "ns": "simkube"
+      },
+      "namespace": "simkube",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-29T18:23:42.510213Z",
+      "sim_name": "diag-f8c5ee46",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-f8c5ee46",
+        "ns": "simkube"
+      },
+      "namespace": "simkube",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
     }
   ],
   "total_rewards": 0,
-  "total_steps": 18
+  "total_steps": 23
 }

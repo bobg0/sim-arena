@@ -35,8 +35,8 @@ class SimEnv:
             raise
 
     def create(self, name, trace_path, namespace, duration_s,
-               driver_image: str = "ghcr.io/simkube/sk-driver:latest", 
-               driver_port: int = 8080):
+               driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.2", 
+               driver_port: int = 8888):
         """
         Try to create a Simulation CR; if the CRD is missing, create a ConfigMap as a harmless placeholder.
 
