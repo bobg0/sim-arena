@@ -119,6 +119,9 @@ def apply_action_to_trace(trace_path: str, action: dict, deploy: str, output_pat
 
 
 def _log_trace_version(trace_path: str) -> None:
+    if trace_path.startswith("file://"):
+        logger.info(f"Trace version: unknown (remote path {trace_path})")
+        return
     trace = load_trace(trace_path)
     version = trace.get("version")
     logger.info(f"Trace version: {version}")
@@ -194,7 +197,12 @@ def one_step(
         logger.info(f"Policy '{policy_name}' chose action: {action}")
 
         logger.info("Applying action to trace...")
-        out_trace_path, action_info = apply_action_to_trace(local_trace_path, action, deploy, out_trace_path)
+        if local_trace_path.startswith("file://"):
+            logger.warning("Skipping trace edit (remote trace path).")
+            action_info = {"changed": False, "action_type": action.get("type"), "blocked": False, "skipped": True}
+            out_trace_path = local_trace_path
+        else:
+            out_trace_path, action_info = apply_action_to_trace(local_trace_path, action, deploy, out_trace_path)
 
         r = compute_reward(obs, target_total=target, T_s=duration)
         logger.info(f"Reward: {r}")

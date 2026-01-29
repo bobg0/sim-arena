@@ -39,14 +39,20 @@ This file records the important changes and cluster-side actions performed durin
   - `demo/trace-0001.msgpack`
   - `demo/trace-normalized.msgpack`
   - `file:///data/trace-0001.msgpack`
+  - `file:///data/trace` (exported v2 trace)
 - Verified driver job/pod creation in `test-ns`.
 - Fixed missing `sk-ctrl-sa` in `test-ns` (job creation failure).
 - Fixed missing `simkube` secret in `test-ns` (pod startup failure).
 - Fixed missing trace mount by copying trace into kind node data.
+ - Installed tracer into local cluster (isengard local run skips tracer by default):
+   - `kubectl apply -k "https://github.com/acrlabs/simkube//k8s/kustomize/prod/?timeout=120&ref=v2.4.1"`
+ - Exported trace from sk-tracer via `/export` and corrected request schema.
+ - Rebased/exported trace timestamps to shorten simulation wait.
 
 ### Commands used to debug
 - Run copyb:
   - `python3 runner/one_step_copyb.py --trace demo/trace-0001.msgpack --ns test-ns --deploy web --target 3 --duration 120`
+  - `python3 runner/one_step_copyb.py --trace file:///data/trace --ns test-ns --deploy web --target 3 --duration 120`
 - Observe driver/job/pods:
   - `kubectl get simulations -A`
   - `kubectl get jobs -n test-ns`
@@ -58,6 +64,9 @@ This file records the important changes and cluster-side actions performed durin
   - `kubectl get events -n test-ns --sort-by=.lastTimestamp | tail -n 20`
   - `kubectl logs -n test-ns <driver-pod>`
   - `kubectl logs -n test-ns job/<driver-job>`
+ - Tracer export (correct schema):
+   - `kubectl port-forward -n simkube svc/sk-tracer-svc 7777:7777`
+   - `curl -s http://localhost:7777/export -H 'Content-Type: application/json' --data @/tmp/trace-export.json --output /tmp/trace-v2.msgpack`
 
 ### Failure scenarios observed (in order)
 1) **ServiceAccount missing**
@@ -78,6 +87,20 @@ This file records the important changes and cluster-side actions performed durin
 4) **Trace parse failure (current)**
    - Error: `could not parse trace file` and "older than version 2"
    - Effect: driver container exits; job hits backoff limit; no workload pods.
+
+5) **Tracer export schema mismatch**
+   - Error: HTTP 422 Unprocessable Entity when posting to `/export`.
+   - Cause: request JSON missing required fields (`start_ts`, `end_ts`, `export_path`, `filters`).
+   - Fix: use schema from `simkube/sk-api/schema/v1/simkube.yml`.
+
+6) **Exported trace had far-future timestamps**
+   - Evidence: events `[0, 1769672195]`.
+   - Effect: driver sleeps for ~56 years between events.
+   - Fix: rebase/scale timestamps so events fall within 0–10 seconds.
+
+7) **Driver created only virtual namespaces**
+   - Driver logs show creation of `virtual-*` namespaces and non-`web` workloads (e.g., `virtual-monitoring/prom2parquet`).
+   - No `app=web` pods exist in `test-ns`, so `observe()` still returns zero.
 
 ### Current failure mode
 - Driver pod starts but exits with:

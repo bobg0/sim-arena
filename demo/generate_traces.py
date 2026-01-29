@@ -45,7 +45,10 @@ def create_trace(cpu_per_pod: float, memory_gb_per_pod: float, replicas: int, tr
     total_memory_gb = memory_gb_per_pod * replicas
     
     return {
-        "version": 1,
+        "version": 2,
+        "config": {},
+        "pod_lifecycles": {},
+        "index": {},
         "metadata": {
             "description": f"Synthetic trace #{trace_id:04d} - CPU: {total_cpu:.1f}, Memory: {total_memory_gb:.1f}GB, Replicas: {replicas}"
         },
