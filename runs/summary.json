@@ -678,8 +678,38 @@
       "duration_s": 120,
       "seed": 0,
       "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-29T20:36:15.710991Z",
+      "sim_name": "diag-782b2e65",
+      "sim_uid": {
+        "kind": "simulation",
+        "name": "diag-782b2e65",
+        "ns": "simkube"
+      },
+      "namespace": "simkube",
+      "trace_in": "file:///data/trace",
+      "trace_out": "file:///data/trace",
+      "obs": {
+        "ready": 0,
+        "pending": 0,
+        "total": 0
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false,
+        "skipped": true
+      },
+      "reward": 0,
+      "duration_s": 120,
+      "seed": 0,
+      "policy": "heuristic"
     }
   ],
   "total_rewards": 0,
-  "total_steps": 26
+  "total_steps": 27
 }
