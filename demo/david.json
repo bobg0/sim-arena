@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "config": {
+      "trackedObjects": {
+          "apps/v1.Deployment": {
+              "podSpecTemplatePath": "/spec/template"
+          }
+      }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "events": [{
+    "ts": 1730390400,
+    "deleted_objs": [],
+    "applied_objs": [{
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {"name": "web", "namespace": "default"},
+      "spec": {
+        "selector": {
+          "matchLabels": {"app": "web"}
+        },
+        "replicas": 2,
+        "template": {
+          "metadata": {"labels": {"app": "web"}},
+          "spec": {
+            "containers": [{
+              "name": "web",
+              "image": "ghcr.io/example/web:1.0",
+              "resources": {
+                "requests": {"cpu": "500m", "memory": "512Mi"}
+              }
+            }]
+          }
+        }
+      }
+    }]
+  }]
+}
