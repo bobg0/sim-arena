@@ -708,8 +708,32 @@
       "duration_s": 120,
       "seed": 0,
       "policy": "heuristic"
+    },
+    {
+      "timestamp": "2026-01-30T22:16:39.664293Z",
+      "sim_name": "diag-e0478221",
+      "sim_uid": "diag-e0478221",
+      "namespace": "default",
+      "trace_in": "demo/trace-0001.msgpack",
+      "trace_out": ".tmp/trace-next.msgpack",
+      "obs": {
+        "ready": 2,
+        "pending": 0,
+        "total": 2
+      },
+      "action": {
+        "type": "noop"
+      },
+      "action_info": {
+        "changed": false,
+        "action_type": "noop",
+        "blocked": false
+      },
+      "reward": 1,
+      "duration_s": 60,
+      "seed": 0
     }
   ],
-  "total_rewards": 0,
-  "total_steps": 27
+  "total_rewards": 1,
+  "total_steps": 28
 }
