@@ -203,8 +203,11 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info("Wait complete, proceeding to observe.")
         
         # 4) observe cluster state
-        logger.info("Observing cluster state...")
-        obs = observe(namespace, deploy)
+        # NOTE: SimKube creates pods in virtual-<trace-namespace>
+        # The trace file specifies namespace "default", so pods appear in "virtual-default"
+        virtual_namespace = "virtual-default"  # Hardcoded to match trace file
+        logger.info(f"Observing cluster state in {virtual_namespace}...")
+        obs = observe(virtual_namespace, deploy)
         logger.info(f"Observation: {obs}")
         
         # 5) policy decision
