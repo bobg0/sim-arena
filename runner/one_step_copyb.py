@@ -4,7 +4,7 @@ runner/one_step_copyb.py
 One reproducible agent step:
 pre_start -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> reward -> log -> cleanup
 """
-#your harded
+
 import argparse
 import hashlib
 import json
@@ -119,9 +119,6 @@ def apply_action_to_trace(trace_path: str, action: dict, deploy: str, output_pat
 
 
 def _log_trace_version(trace_path: str) -> None:
-    if trace_path.startswith("file://"):
-        logger.info(f"Trace version: unknown (remote path {trace_path})")
-        return
     trace = load_trace(trace_path)
     version = trace.get("version")
     logger.info(f"Trace version: {version}")
@@ -135,7 +132,7 @@ def one_step(
     duration: int,
     seed: int = 0,
     policy_name: str = "heuristic",
-    driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.2",
+    driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.1",
 ) -> dict:
     random.seed(seed)
 
@@ -147,12 +144,11 @@ def one_step(
     out_trace_path = str(tmp_dir / "trace-next.msgpack")
     _log_trace_version(local_trace_path)
 
-    # if not local_trace_path.startswith(("file://", "http://", "https://")):
-    #     trace_filename = Path(local_trace_path).name
-    #     cluster_trace_path = f"file:///data/{trace_filename}"
-    # else:
-    # cluster_trace_path = local_trace_path
-    cluster_trace_path =  "file:///data/trace-0001.msgpack"
+    if not local_trace_path.startswith(("file://", "http://", "https://")):
+        trace_filename = Path(local_trace_path).name
+        cluster_trace_path = f"file:///data/{trace_filename}"
+    else:
+        cluster_trace_path = local_trace_path
 
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     logger.info(
@@ -198,12 +194,7 @@ def one_step(
         logger.info(f"Policy '{policy_name}' chose action: {action}")
 
         logger.info("Applying action to trace...")
-        if local_trace_path.startswith("file://"):
-            logger.warning("Skipping trace edit (remote trace path).")
-            action_info = {"changed": False, "action_type": action.get("type"), "blocked": False, "skipped": True}
-            out_trace_path = local_trace_path
-        else:
-            out_trace_path, action_info = apply_action_to_trace(local_trace_path, action, deploy, out_trace_path)
+        out_trace_path, action_info = apply_action_to_trace(local_trace_path, action, deploy, out_trace_path)
 
         r = compute_reward(obs, target_total=target, T_s=duration)
         logger.info(f"Reward: {r}")
@@ -259,7 +250,7 @@ def main() -> int:
     p.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     p.add_argument("--seed", type=int, default=0, help="Random seed")
     p.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry key)")
-    p.add_argument("--driver-image", type=str, default="quay.io/appliedcomputing/sk-driver:v2.4.2", help="SimKube driver image")
+    p.add_argument("--driver-image", type=str, default="quay.io/appliedcomputing/sk-driver:v2.4.1", help="SimKube driver image")
 
     args = p.parse_args()
     one_step(
