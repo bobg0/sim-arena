@@ -554,7 +554,7 @@ python runner/multi_step.py \
   --target 3 \
   --duration 60 \
   --policy heuristic \
-  --episodes 10
+  --steps 10
 ```
 
 ---
