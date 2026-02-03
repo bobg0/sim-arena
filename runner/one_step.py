@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import random
@@ -165,7 +165,7 @@ def update_summary(record: dict) -> None:
 def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base"):
     random.seed(seed)
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(timezone.utc).isoformat() 
     local_trace_path = str(trace_path)  # Keep local path for file operations
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -287,7 +287,7 @@ def main():
 
     args = parser.parse_args()
     
-    return one_step(
+    result = one_step(
         trace_path=args.trace,
         namespace=args.namespace,
         deploy=args.deploy,
@@ -297,6 +297,7 @@ def main():
         policy_name=args.policy,
         reward_name=args.reward,
     )
+    return result["status"]
 
 if __name__ == "__main__":
     sys.exit(main())
