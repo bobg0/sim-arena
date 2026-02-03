@@ -32,8 +32,8 @@ import random
 # Import project modules
 from ops.hooks import run_hooks
 from env import create_simulation, wait_fixed, delete_simulation
-from observe.reader import observe
-from observe.reward import reward as compute_reward
+from observe.reader import observe, current_requests
+from observe.reward import REWARD_REGISTRY, get_reward
 from env.actions.trace_io import load_trace, save_trace
 from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
 from runner.safeguards import validate_action
@@ -162,7 +162,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic"):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base"):
     random.seed(seed)
     
     timestamp = datetime.utcnow().isoformat() + "Z"
@@ -209,6 +209,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
         logger.info(f"Observation: {obs}")
+        resources = current_requests(namespace, deploy)
+        logger.info(f"Current requests: {resources}")
+
         
         # 5) policy decision
         policy_picked = get_policy(policy_name)
@@ -222,7 +225,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Action complete. Changed: {trace_changed}")
         
         # 7) compute reward
-        r = compute_reward(obs, target_total=target, T_s=duration)
+        reward_fn = get_reward(reward_name)
+        r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
+
         logger.info(f"Reward computed: {r}")
         
         # 8) write logs: step.jsonl and summary.json
@@ -277,6 +282,8 @@ def main():
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
+
 
     args = parser.parse_args()
     
@@ -288,6 +295,7 @@ def main():
         duration=args.duration,
         seed=args.seed,
         policy_name=args.policy,
+        reward_name=args.reward,
     )
 
 if __name__ == "__main__":
