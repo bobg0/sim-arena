@@ -63,7 +63,6 @@ class SimEnv:
             #         "duration": f"{int(duration_s)}s",
             #     },
             # }
-
             body = {
                 "apiVersion": f"{SIM_GROUP}/{SIM_VER}",
                 "kind": "Simulation",
@@ -71,13 +70,12 @@ class SimEnv:
                 "spec": {
                     "driver": {
                         "image": driver_image,
-                        "namespace": "simkube",  # Use simkube namespace (secrets already exist)
+                        "namespace": namespace,  # Driver runs in this namespace
                         "port": int(driver_port),
                         "tracePath": trace_path,
-                        "virtualNsPrefix": "virtual",  # Pods appear in virtual-<namespace>
                     },
                     "hooks": {
-                        "preStartHooks": [{
+                          "preStartHooks": [{
                             "args": [
                                 "apply",
                                 "-f",
