@@ -87,20 +87,22 @@ def current_requests(namespace: str, deploy: str) -> dict:
         
         # Get requests from the first container in the pod template
         container = deployment.spec.template.spec.containers[0]
+        replicas = deployment.spec.replicas or 0
         
         if not container.resources or not container.resources.requests:
             # No requests set
-            return {"cpu": "0", "memory": "0"}
+            return {"cpu": "0", "memory": "0", "replicas": replicas}
             
         requests = container.resources.requests
         
         # Return values, using "0" as a default if a key is missing
         return {
             "cpu": requests.get("cpu", "0"),
-            "memory": requests.get("memory", "0")
+            "memory": requests.get("memory", "0"),
+            "replicas": replicas
         }
 
     except Exception as e:
         print(f"Error reading deployment '{deploy}': {e}")
         # Return a "safe" empty state
-        return {"cpu": "0", "memory": "0"}
+        return {"cpu": "0", "memory": "0", "replicas": 0}

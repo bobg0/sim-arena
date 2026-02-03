@@ -43,6 +43,7 @@ def run_episode(
     steps: int,
     seed: int = 0,
     policy_name: str = "heuristic",
+    reward_name: str = "base",
 ):
     """
     Run a multi-step episode.
@@ -117,6 +118,7 @@ def main():
     parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy", type=str, default="heuristic")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
 
     args = parser.parse_args()
 
@@ -129,6 +131,7 @@ def main():
         steps=args.steps,
         seed=args.seed,
         policy_name=args.policy,
+        reward_name=args.reward,
     )
 
 
