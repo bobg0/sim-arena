@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from .agent import BaseAgent
+
 
 ###############################################################################
 # Q-Network
@@ -54,7 +56,7 @@ class ReplayMemory:
 # DQN Agent
 ###############################################################################
 
-class DQNAgent:
+class DQNAgent(BaseAgent):
     def __init__(
         self,
         state_dim,
@@ -215,6 +217,9 @@ class DQNAgent:
         # Note: This doesn't reset the network weights, just the step counter
         # If you want to reset everything, create a new agent instance
         pass
+    
+     def __repr__(self):
+        return f"DQNAgent(state_dim={self.state_dim}, n_actions={self.n_actions})"
 
 
 ###############################################################################
