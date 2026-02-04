@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 # Policies: loadable policy registry (will import runner.policies)
 from policies import POLICY_REGISTRY, get_policy # remove runner.policies
+from agent.Eps_greedy import EpsilonGreedyAgent
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -162,7 +163,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base"):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base", agent):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -211,12 +212,10 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Observation: {obs}")
         resources = current_requests(namespace, deploy)
         logger.info(f"Current requests: {resources}")
-
         
         # 5) policy decision
-        policy_picked = get_policy(policy_name)
-        action = policy_picked(obs=obs, deploy=deploy)
-        logger.info(f"Policy '{policy_name}' chose action: {action}")
+        action = agent.act()
+        logger.info(f"Agent '{policy_name}' chose action: {action}")
         
         # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
@@ -286,6 +285,7 @@ def main():
 
 
     args = parser.parse_args()
+    agent = EpsilonGreedyAgent(n_actions=4, epsilon=0.1)
     
     result = one_step(
         trace_path=args.trace,
@@ -296,6 +296,7 @@ def main():
         seed=args.seed,
         policy_name=args.policy,
         reward_name=args.reward,
+        agent = agent
     )
     return result["status"]
 
