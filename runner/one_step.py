@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import random
+import shutil
 
 # Import project modules
 from ops.hooks import run_hooks
@@ -179,7 +180,12 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         cluster_trace_path = local_trace_path
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
+    
+    # NOTE: SimKube creates pods in virtual-<trace-namespace>
+    # The trace file specifies namespace "default", so pods appear in "virtual-default"
+    virtual_namespace = "virtual-default"
+    
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -188,8 +194,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
     try:
         # 1) pre_start hook
-        logger.info("Running pre_start hooks...")
-        run_hooks("pre_start", namespace)
+        # NOTE: Clean up virtual namespace where SimKube creates pods
+        logger.info(f"Running pre_start hooks in {virtual_namespace}...")
+        run_hooks("pre_start", virtual_namespace)
         logger.info("pre_start hooks completed.")
         
         # 2) create simulation CR (use cluster path)
@@ -203,13 +210,10 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info("Wait complete, proceeding to observe.")
         
         # 4) observe cluster state
-        # NOTE: SimKube creates pods in virtual-<trace-namespace>
-        # The trace file specifies namespace "default", so pods appear in "virtual-default"
-        virtual_namespace = "virtual-default"  # Hardcoded to match trace file
         logger.info(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
         logger.info(f"Observation: {obs}")
-        resources = current_requests(namespace, deploy)
+        resources = current_requests(virtual_namespace, deploy)
         logger.info(f"Current requests: {resources}")
 
         
@@ -224,6 +228,15 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
         
+        # 6b) Copy output trace to kind node data directory (always, for multi-step runs)
+        kind_data_dir = Path.home() / ".local/kind-node-data/cluster"
+        kind_data_dir.mkdir(parents=True, exist_ok=True)
+        trace_filename = Path(out_trace_path).name
+        kind_trace_path = kind_data_dir / trace_filename
+        if Path(out_trace_path).exists():
+            shutil.copy2(out_trace_path, kind_trace_path)
+            logger.info(f"Copied trace to kind: {kind_trace_path}")
+        
         # 7) compute reward
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
@@ -235,7 +248,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "timestamp": timestamp,
             "sim_name": sim_name,
             "sim_uid": sim_uid,
-            "namespace": namespace,
+            "namespace": virtual_namespace,  # Use actual namespace where resources exist
             "trace_in": local_trace_path,
             "trace_out": out_trace_path,
             "obs": obs,
