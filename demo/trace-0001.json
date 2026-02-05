@@ -1,6 +1,12 @@
 {
   "version": 2,
-  "config": {},
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
   "pod_lifecycles": {},
   "index": {},
   "metadata": {

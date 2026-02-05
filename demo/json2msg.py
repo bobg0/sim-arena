@@ -1,14 +1,18 @@
 import json
 import msgpack
-
-# Paths — change as needed
-INPUT_JSON  = "david.json"
-OUTPUT_MSGP = "trace-0001.msgpack"
+import sys
 
 #file:///data/trace
 #file:///data/trace-0001.msgpack when creating CR s
 #actual generated file -> /home/bogao/.local/kind-node-data/cluster/[].msgpack
 def main():
+    if len(sys.argv) < 3:
+        print("Usage: python json2msg.py <input.json> <output.msgpack>")
+        sys.exit(1)
+    
+    INPUT_JSON = sys.argv[1]
+    OUTPUT_MSGP = sys.argv[2]
+    
     # 1) Load JSON from disk
     with open(INPUT_JSON, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -23,4 +27,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # simulation customer resources

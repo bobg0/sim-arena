@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Simkube specific ignores
+.tmp/trace-next.msgpack
+runs/step.jsonl
+runs/summary.json
