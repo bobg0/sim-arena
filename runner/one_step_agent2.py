@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 # Policies: loadable policy registry (will import runner.policies)
 from policies import POLICY_REGISTRY, get_policy # remove runner.policies
+from agent.Eps_greedy import EpsilonGreedyAgent
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -28,7 +29,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import random
-import shutil
 
 # Import project modules
 from ops.hooks import run_hooks
@@ -163,7 +163,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base"):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base", agent):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -173,20 +173,14 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     out_trace_path = str(tmp_dir / "trace-next.msgpack")
     
     # Convert to cluster-accessible URL for SimKube
-    # if not local_trace_path.startswith(("file://", "http://", "https://")):
-    #     trace_filename = Path(local_trace_path).name
-    #     cluster_trace_path = f"file:///data/{trace_filename}"
-    # else:
-    # cp demo/trace—0001.msgpack ~/.local/kind-node-data/test-cluster/trace—0001.msgpack
-    cluster_trace_path = "~/.local/kind-node-data/test-cluster/trace—0001.msgpack"
+    if not local_trace_path.startswith(("file://", "http://", "https://")):
+        trace_filename = Path(local_trace_path).name
+        cluster_trace_path = f"file:///data/{trace_filename}"
+    else:
+        cluster_trace_path = local_trace_path
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
-    
-    # NOTE: SimKube creates pods in virtual-<trace-namespace>
-    # The trace file specifies namespace "default", so pods appear in "virtual-default"
-    virtual_namespace = "virtual-default"
-    
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -195,9 +189,8 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
     try:
         # 1) pre_start hook
-        # NOTE: Clean up virtual namespace where SimKube creates pods
-        logger.info(f"Running pre_start hooks in {virtual_namespace}...")
-        run_hooks("pre_start", virtual_namespace)
+        logger.info("Running pre_start hooks...")
+        run_hooks("pre_start", namespace)
         logger.info("pre_start hooks completed.")
         
         # 2) create simulation CR (use cluster path)
@@ -211,34 +204,24 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info("Wait complete, proceeding to observe.")
         
         # 4) observe cluster state
+        # NOTE: SimKube creates pods in virtual-<trace-namespace>
+        # The trace file specifies namespace "default", so pods appear in "virtual-default"
+        virtual_namespace = "virtual-default"  # Hardcoded to match trace file
         logger.info(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
-        # obs = observe(namespace, deploy)
-
         logger.info(f"Observation: {obs}")
-        resources = current_requests(virtual_namespace, deploy)
+        resources = current_requests(namespace, deploy)
         logger.info(f"Current requests: {resources}")
-
         
         # 5) policy decision
-        policy_picked = get_policy(policy_name)
-        action = policy_picked(obs=obs, deploy=deploy)
-        logger.info(f"Policy '{policy_name}' chose action: {action}")
+        action = agent.act()
+        logger.info(f"Agent '{policy_name}' chose action: {action}")
         
         # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
         out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
-        
-        # 6b) Copy output trace to kind node data directory (always, for multi-step runs)
-        kind_data_dir = Path.home() / ".local/kind-node-data/cluster"
-        kind_data_dir.mkdir(parents=True, exist_ok=True)
-        trace_filename = Path(out_trace_path).name
-        kind_trace_path = kind_data_dir / trace_filename
-        if Path(out_trace_path).exists():
-            shutil.copy2(out_trace_path, kind_trace_path)
-            logger.info(f"Copied trace to kind: {kind_trace_path}")
         
         # 7) compute reward
         reward_fn = get_reward(reward_name)
@@ -251,7 +234,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "timestamp": timestamp,
             "sim_name": sim_name,
             "sim_uid": sim_uid,
-            "namespace": virtual_namespace,  # Use actual namespace where resources exist
+            "namespace": namespace,
             "trace_in": local_trace_path,
             "trace_out": out_trace_path,
             "obs": obs,
@@ -302,6 +285,7 @@ def main():
 
 
     args = parser.parse_args()
+    agent = EpsilonGreedyAgent(n_actions=4, epsilon=0.1)
     
     result = one_step(
         trace_path=args.trace,
@@ -312,6 +296,7 @@ def main():
         seed=args.seed,
         policy_name=args.policy,
         reward_name=args.reward,
+        agent = agent
     )
     return result["status"]
 
