@@ -170,15 +170,16 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     local_trace_path = str(trace_path)  # Keep local path for file operations
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    out_trace_path = str(tmp_dir / "trace-next.msgpack")
+    tmp_dir = "~/.local/kind-node-data/test-cluster/"
+    out_trace_path = tmp_dir + "trace-next.msgpack"
     
     # Convert to cluster-accessible URL for SimKube
     # if not local_trace_path.startswith(("file://", "http://", "https://")):
-    #     trace_filename = Path(local_trace_path).name
-    #     cluster_trace_path = f"file:///data/{trace_filename}"
-    # else:
-    # cp demo/trace—0001.msgpack ~/.local/kind-node-data/test-cluster/trace—0001.msgpack
-    cluster_trace_path = "~/.local/kind-node-data/test-cluster/trace—0001.msgpack"
+    trace_filename = Path(local_trace_path).name
+    cluster_trace_path = f"file:///data/{trace_filename}"
+
+
+    # IGNORE:cp demo/trace—0001.msgpack ~/.local/kind-node-data/test-cluster/trace—0001.msgpack
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     
