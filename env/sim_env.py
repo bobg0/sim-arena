@@ -17,6 +17,8 @@ class SimEnv:
             config.load_kube_config()
         except Exception:
             config.load_incluster_config()
+        #TODO get cluster context name based on the name passed in during isengard just run simkube cluster-name = [];  kind-[cluster-name]
+        
 
         self.custom = client.CustomObjectsApi() # read/write CRDs (eg Simulation)
         self.core = client.CoreV1Api() # read/write core objects (eg ConfigMap)
