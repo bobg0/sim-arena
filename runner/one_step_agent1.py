@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 # Policies: loadable policy registry (will import runner.policies)
 from policies import POLICY_REGISTRY, get_policy # remove runner.policies
-from agent.Eps_greedy import EpsilonGreedyAgent
+from agent import Agent, AgentType
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -163,7 +163,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base", agent):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base", agent = None):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -223,9 +223,10 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
         
-        # 7) compute reward
+        # 7) compute reward & train agent
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
+        agent.update(action, r)
 
         logger.info(f"Reward computed: {r}")
         
@@ -285,7 +286,7 @@ def main():
 
 
     args = parser.parse_args()
-    agent = EpsilonGreedyAgent(n_actions=4, epsilon=0.1)
+    agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     
     result = one_step(
         trace_path=args.trace,
