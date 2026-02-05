@@ -70,9 +70,10 @@ class SimEnv:
                 "spec": {
                     "driver": {
                         "image": driver_image,
-                        "namespace": namespace,  # Driver runs in this namespace
+                        "namespace": "simkube",  # Driver always runs in simkube namespace (has secrets/SA)
                         "port": int(driver_port),
                         "tracePath": trace_path,
+                        "virtualNsPrefix": "virtual",  # Pods created in virtual-<namespace>
                     },
                     "hooks": {
                           "preStartHooks": [{
