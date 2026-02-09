@@ -73,6 +73,7 @@ def run_episode(
             duration=duration,
             seed=seed + step_idx,  # deterministic but varied
             policy_name=policy_name,
+            reward_name=reward_name,  # Pass the reward function name
         )
 
         if result["status"] != 0:
@@ -118,7 +119,7 @@ def main():
     parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--policy", type=str, default="heuristic")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
     args = parser.parse_args()
 

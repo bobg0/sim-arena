@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "metadata": {
+    "description": "Scaling scenario: starts with 1 underprovisioned pod, agent must scale up to reach target",
+    "scenario": {
+      "initial_state": "1 pod with low resources (250m CPU, 256Mi memory)",
+      "target": "3 pods ready",
+      "expected_behavior": "Agent should scale up replicas to reach target of 3 pods",
+      "reward": "1 when ready=3, pending=0, total=3"
+    }
+  },
+  "events": [
+    {
+      "ts": 1730390400,
+      "deleted_objs": [],
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "replicas": 1,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "250m",
+                        "memory": "256Mi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
