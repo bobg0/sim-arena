@@ -258,7 +258,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "obs": obs,
             "action": action,
             "action_info": action_info if action_info else {},
-            "reward": int(r),
+            "reward": float(r),  # Keep as float for shaped rewards
             "duration_s": duration,
             "seed": seed,
         }
@@ -299,7 +299,7 @@ def main():
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
 
     args = parser.parse_args()
