@@ -10,12 +10,11 @@ Usage:
   python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 60
   
   # Using shaped reward function for better RL training
-  python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --policy scale_replicas --reward shaped
+  python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --reward shaped
 """
 import sys
 from pathlib import Path
-# Policies: loadable policy registry (will import runner.policies)
-from policies import POLICY_REGISTRY, get_policy # remove runner.policies
+from agent.agent import Agent, AgentType
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -168,7 +167,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base"):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "base", agent = None):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -192,7 +191,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     # The trace file specifies namespace "default", so pods appear in "virtual-default"
     virtual_namespace = "virtual-default"
     
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, agent={agent_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -227,9 +226,20 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
         
         # 5) policy decision
-        policy_picked = get_policy(policy_name)
-        action = policy_picked(obs=obs, deploy=deploy)
-        logger.info(f"Policy '{policy_name}' chose action: {action}")
+        action_idx = agent.act()  # This returns an int, e.g., 3
+        
+        ACTION_SPACE = {
+            0: {"type": "noop"},
+            1: {"type": "bump_cpu_small", "step": "500m"},
+            2: {"type": "bump_mem_small", "step": "256Mi"},
+            3: {"type": "scale_up_replicas", "delta": 1}
+        }
+        
+        # Convert index to dictionary for the system
+        action = ACTION_SPACE.get(action_idx, {"type": "noop"})
+
+        logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
+        logger.info(f"Mapped to system action: {action}")
         
         # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
@@ -249,6 +259,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         # 7) compute reward
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
+        agent.update(action_idx, r)
 
         logger.info(f"Reward computed: {r}")
         
@@ -303,11 +314,12 @@ def main():
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
+    parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
     parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
 
     args = parser.parse_args()
+    agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     
     result = one_step(
         trace_path=args.trace,
@@ -316,8 +328,9 @@ def main():
         target=args.target,
         duration=args.duration,
         seed=args.seed,
-        policy_name=args.policy,
+        agent_name=args.agent,
         reward_name=args.reward,
+        agent = agent
     )
     return result["status"]
 

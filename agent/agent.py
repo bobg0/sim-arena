@@ -5,7 +5,6 @@ Base agent class and unified wrapper for different RL agents.
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Optional, Union
-import numpy as np
 
 
 class AgentType(Enum):
