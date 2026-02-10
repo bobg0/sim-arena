@@ -4,8 +4,13 @@ runner/one_step.py
 Orchestrate one reproducible agent step:
 pre_start hook -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> save trace -> reward -> log
 
+
 Usage:
-  python runner/one_step.py --trace demo/trace-0001.msgpack --ns test-ns --deploy web --target 3 --duration 120
+  # Basic example with binary reward
+  python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 60
+  
+  # Using shaped reward function for better RL training
+  python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --policy scale_replicas --reward shaped
 """
 import sys
 from pathlib import Path
@@ -258,7 +263,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "obs": obs,
             "action": action,
             "action_info": action_info if action_info else {},
-            "reward": int(r),
+            "reward": float(r),  # Keep as float for shaped rewards
             "duration_s": duration,
             "seed": seed,
         }
@@ -299,7 +304,7 @@ def main():
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
 
     args = parser.parse_args()

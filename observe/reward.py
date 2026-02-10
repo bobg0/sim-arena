@@ -1,6 +1,7 @@
 # observe/reward.py
 
 from typing import Callable, Dict
+import logging
 from runner.safeguards import (
     parse_cpu_to_millicores,
     parse_memory_to_bytes,
@@ -8,6 +9,8 @@ from runner.safeguards import (
     MAX_MEMORY_BYTES,
     MAX_REPLICAS,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def reward_base(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
@@ -34,6 +37,60 @@ def reward_base(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
     else:
         return 0
 
+
+def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+    """
+    Improved reward function with distance-based penalties.
+    
+    Provides more granular feedback to help agents learn faster:
+    - Reward of 1.0 when exactly at target (ready=target, pending=0)
+    - Penalties for being away from target (distance-based)
+    - Extra penalties for pending pods (inefficiency)
+    - Extra penalties for excess replicas (resource waste)
+    
+    Returns a float between -1.0 and 1.0
+    """
+    ready = obs.get("ready", 0)
+    pending = obs.get("pending", 0)
+    total = obs.get("total", 0)
+    
+    # Perfect: exactly at target with no pending pods
+    if ready == target_total and pending == 0 and total == target_total:
+        return 1.0
+    
+    # Calculate penalties
+    reward = 0.0
+    
+    # 1. Distance from target (how far are we from the goal?)
+    distance = abs(ready - target_total)
+    distance_penalty = -0.1 * distance
+    reward += distance_penalty
+    
+    # 2. Pending pods penalty (inefficiency - pods not ready yet)
+    if pending > 0:
+        pending_penalty = -0.05 * pending
+        reward += pending_penalty
+    
+    # 3. Resource waste penalty (too many replicas)
+    if total > target_total:
+        overshoot = total - target_total
+        waste_penalty = -0.15 * overshoot  # Stronger penalty for wasting resources
+        reward += waste_penalty
+    
+    # 4. Under-provisioned penalty (not enough replicas)
+    elif total < target_total:
+        undershoot = target_total - total
+        undershoot_penalty = -0.08 * undershoot
+        reward += undershoot_penalty
+    
+    # Clamp reward between -1.0 and 1.0
+    final_reward = max(-1.0, min(1.0, reward))
+    
+    # Debug logging
+    logger.info(f"[SHAPED REWARD] ready={ready}, pending={pending}, total={total}, target={target_total}, computed={reward:.2f}, final={final_reward:.2f}")
+    
+    return final_reward
+
 def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
     """
     Penalize exceeding max resource limits.
@@ -58,6 +115,7 @@ def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -
 
 REWARD_REGISTRY: Dict[str, Callable] = {
     "base": reward_base,
+    "shaped": reward_shaped,
     "max_punish": reward_max_punish,
 }
 
