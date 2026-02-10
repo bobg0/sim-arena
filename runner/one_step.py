@@ -4,8 +4,13 @@ runner/one_step.py
 Orchestrate one reproducible agent step:
 pre_start hook -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> save trace -> reward -> log
 
+
 Usage:
-  python runner/one_step.py --trace demo/trace-0001.msgpack --ns test-ns --deploy web --target 3 --duration 120
+  # Basic example with binary reward
+  python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 60
+  
+  # Using shaped reward function for better RL training
+  python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --policy scale_replicas --reward shaped
 """
 import sys
 from pathlib import Path
