@@ -2,7 +2,6 @@ import random
 import math
 from collections import deque, namedtuple
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -218,7 +217,7 @@ class DQNAgent(BaseAgent):
         # If you want to reset everything, create a new agent instance
         pass
     
-     def __repr__(self):
+    def __repr__(self):
         return f"DQNAgent(state_dim={self.state_dim}, n_actions={self.n_actions})"
 
 
@@ -260,7 +259,8 @@ def train_dqn(env, agent, num_episodes=500):
         episode_rewards.append(ep_reward)
         
         if (ep + 1) % 50 == 0:
-            avg_reward = np.mean(episode_rewards[-50:])
+            recent_rewards = episode_rewards[-50:]
+            avg_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0.0
             print(f"Episode {ep + 1}/{num_episodes}, Avg Reward (last 50): {avg_reward:.2f}")
 
     return episode_rewards

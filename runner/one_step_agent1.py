@@ -4,14 +4,17 @@ runner/one_step.py
 Orchestrate one reproducible agent step:
 pre_start hook -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> save trace -> reward -> log
 
+
 Usage:
-  python runner/one_step.py --trace demo/trace-0001.msgpack --ns test-ns --deploy web --target 3 --duration 120
+  # Basic example with binary reward
+  python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 60
+  
+  # Using shaped reward function for better RL training
+  python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --reward shaped
 """
 import sys
 from pathlib import Path
-# Policies: loadable policy registry (will import runner.policies)
-from policies import POLICY_REGISTRY, get_policy # remove runner.policies
-from agent import Agent, AgentType
+from agent.agent import Agent, AgentType
 
 # Add project root to Python path so imports work
 script_dir = Path(__file__).parent.absolute()
@@ -29,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import random
+import shutil
 
 # Import project modules
 from ops.hooks import run_hooks
@@ -163,24 +167,31 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, policy_name: str = "heuristic", reward_name: str = "base", agent = None):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "base", agent = None):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
     local_trace_path = str(trace_path)  # Keep local path for file operations
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    out_trace_path = str(tmp_dir / "trace-next.msgpack")
+    tmp_dir = "~/.local/kind-node-data/test-cluster/"
+    out_trace_path = tmp_dir + "trace-next.msgpack"
     
     # Convert to cluster-accessible URL for SimKube
-    if not local_trace_path.startswith(("file://", "http://", "https://")):
-        trace_filename = Path(local_trace_path).name
-        cluster_trace_path = f"file:///data/{trace_filename}"
-    else:
-        cluster_trace_path = local_trace_path
+    # if not local_trace_path.startswith(("file://", "http://", "https://")):
+    trace_filename = Path(local_trace_path).name
+    cluster_trace_path = f"file:///data/{trace_filename}"
+
+
+    # IGNORE:cp demo/trace—0001.msgpack ~/.local/kind-node-data/test-cluster/trace—0001.msgpack
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace}, trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, policy={policy_name}")
+    
+    # NOTE: SimKube creates pods in virtual-<trace-namespace>
+    # The trace file specifies namespace "default", so pods appear in "virtual-default"
+    virtual_namespace = "virtual-default"
+    
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, agent={agent_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -189,8 +200,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
     try:
         # 1) pre_start hook
-        logger.info("Running pre_start hooks...")
-        run_hooks("pre_start", namespace)
+        # NOTE: Clean up virtual namespace where SimKube creates pods
+        logger.info(f"Running pre_start hooks in {virtual_namespace}...")
+        run_hooks("pre_start", virtual_namespace)
         logger.info("pre_start hooks completed.")
         
         # 2) create simulation CR (use cluster path)
@@ -204,18 +216,30 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info("Wait complete, proceeding to observe.")
         
         # 4) observe cluster state
-        # NOTE: SimKube creates pods in virtual-<trace-namespace>
-        # The trace file specifies namespace "default", so pods appear in "virtual-default"
-        virtual_namespace = "virtual-default"  # Hardcoded to match trace file
         logger.info(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
+        # obs = observe(namespace, deploy)
+
         logger.info(f"Observation: {obs}")
-        resources = current_requests(namespace, deploy)
+        resources = current_requests(virtual_namespace, deploy)
         logger.info(f"Current requests: {resources}")
+
         
         # 5) policy decision
-        action = agent.act()
-        logger.info(f"Agent '{policy_name}' chose action: {action}")
+        action_idx = agent.act()  # This returns an int, e.g., 3
+        
+        ACTION_SPACE = {
+            0: {"type": "noop"},
+            1: {"type": "bump_cpu_small", "step": "500m"},
+            2: {"type": "bump_mem_small", "step": "256Mi"},
+            3: {"type": "scale_up_replicas", "delta": 1}
+        }
+        
+        # Convert index to dictionary for the system
+        action = ACTION_SPACE.get(action_idx, {"type": "noop"})
+
+        logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
+        logger.info(f"Mapped to system action: {action}")
         
         # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
@@ -223,10 +247,19 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
         
-        # 7) compute reward & train agent
+        # 6b) Copy output trace to kind node data directory (always, for multi-step runs)
+        kind_data_dir = Path.home() / ".local/kind-node-data/cluster"
+        kind_data_dir.mkdir(parents=True, exist_ok=True)
+        trace_filename = Path(out_trace_path).name
+        kind_trace_path = kind_data_dir / trace_filename
+        if Path(out_trace_path).exists():
+            shutil.copy2(out_trace_path, kind_trace_path)
+            logger.info(f"Copied trace to kind: {kind_trace_path}")
+        
+        # 7) compute reward
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
-        agent.update(action, r)
+        agent.update(action_idx, r)
 
         logger.info(f"Reward computed: {r}")
         
@@ -235,13 +268,13 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "timestamp": timestamp,
             "sim_name": sim_name,
             "sim_uid": sim_uid,
-            "namespace": namespace,
+            "namespace": virtual_namespace,  # Use actual namespace where resources exist
             "trace_in": local_trace_path,
             "trace_out": out_trace_path,
             "obs": obs,
             "action": action,
             "action_info": action_info if action_info else {},
-            "reward": int(r),
+            "reward": float(r),  # Keep as float for shaped rewards
             "duration_s": duration,
             "seed": seed,
         }
@@ -281,8 +314,8 @@ def main():
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--policy", type=str, default="heuristic", help="Policy to use (registry keys)")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, max_punish)")
+    parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
+    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
 
     args = parser.parse_args()
@@ -295,7 +328,7 @@ def main():
         target=args.target,
         duration=args.duration,
         seed=args.seed,
-        policy_name=args.policy,
+        agent_name=args.agent,
         reward_name=args.reward,
         agent = agent
     )

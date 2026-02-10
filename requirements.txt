@@ -12,3 +12,6 @@ pytest>=7.0.0
 
 # Jupyter notebook support
 ipykernel>=7.0.0
+
+# Agent support
+torch>=2.0.0

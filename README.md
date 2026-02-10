@@ -106,8 +106,7 @@ sim-arena/
 ┌──────────────────────────────────────────────────────────────┐
 │ USER RUNS:                                                    │
 │ python runner/one_step.py --trace demo/trace-0001.msgpack   │
-│   --ns test-ns --deploy web --target 3 --duration 60        │
-│   --policy bump_cpu                                          │
+│   --ns test-ns --deploy web --target 3 --duration 60        │                                       │
 └──────────────────────────────────────────────────────────────┘
                            ↓
 ┌──────────────────────────────────────────────────────────────┐
@@ -526,7 +525,6 @@ python runner/one_step.py \
   --deploy web \
   --target 3 \
   --duration 60 \
-  --policy bump_cpu
 
 # Check results
 cat runs/step.jsonl
@@ -553,7 +551,6 @@ python runner/multi_step.py \
   --deploy web \
   --target 3 \
   --duration 60 \
-  --policy heuristic \
   --steps 10
 ```
 
