@@ -319,7 +319,11 @@ def main():
 
 
     args = parser.parse_args()
-    agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
+    if args.agent == "greedy":
+        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
+    elif args.agent == "dqn":
+        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+        # cpu, mem, replicas, pending_pods
     
     result = one_step(
         trace_path=args.trace,
