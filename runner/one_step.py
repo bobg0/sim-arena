@@ -179,7 +179,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     cluster_trace_path = f"file:///data/{trace_filename}"
 
 
-    # IGNORE:cp demo/trace—0001.msgpack ~/.local/kind-node-data/test-cluster/trace—0001.msgpack
+    # IGNORE:cp demo/trace-0001.msgpack ~/.local/kind-node-data/test-cluster/trace-0001.msgpack
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     
