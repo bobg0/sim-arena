@@ -226,7 +226,13 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
         
         # 5) policy decision
-        action_idx = agent.act()  # This returns an int, e.g., 3
+        if agent_name == "greedy":
+            action_idx = agent.act()  # This returns an int, e.g., 3
+        elif agent_name == "dqn":
+            dqn_state = [int(resources["cpu"][0:-1]), int(resources["memory"][0:-2]), resources["replicas"], obs["pending"]]
+            action_idx = agent.act(dqn_state)
+            
+            # cpu, mem, replicas, pending_pods
         
         ACTION_SPACE = {
             0: {"type": "noop"},
@@ -259,7 +265,18 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         # 7) compute reward
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
-        agent.update(action_idx, r)
+
+        # Update Agent
+        if agent_name == "greedy":
+           agent.update(action_idx, r)
+        elif agent_name == "dqn":
+            logger.info(f"Observing new cluster state in {virtual_namespace}...")
+            obs_new = observe(virtual_namespace, deploy)
+            logger.info(f"Observation: {obs_new}")
+            resources_new = current_requests(virtual_namespace, deploy)
+            logger.info(f"New requests: {resources}")
+            dqn_state_new = [int(resources_new["cpu"][0:-1]), int(resources_new["memory"][0:-2]), resources_new["replicas"], obs_new["pending"]]
+            action_idx = agent.update(dqn_state, action_idx, dqn_state_new, r, True)
 
         logger.info(f"Reward computed: {r}")
         
