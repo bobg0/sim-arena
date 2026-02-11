@@ -19,6 +19,8 @@ import argparse
 import logging
 import time
 
+from agent.agent import Agent, AgentType
+
 # Add project root to Python path
 script_dir = Path(__file__).parent.absolute()
 project_root = script_dir.parent
@@ -42,8 +44,9 @@ def run_episode(
     duration: int,
     steps: int,
     seed: int = 0,
-    policy_name: str = "heuristic",
+    agent_name: str = "greedy",
     reward_name: str = "base",
+    agent = None
 ):
     """
     Run a multi-step episode.
@@ -52,7 +55,7 @@ def run_episode(
         dict with episode summary
     """
     logger.info(
-        f"Starting episode: steps={steps}, trace={trace_path}, policy={policy_name}"
+        f"Starting episode: steps={steps}, trace={trace_path}, agent={agent_name}"
     )
 
     current_trace = trace_path
@@ -72,8 +75,9 @@ def run_episode(
             target=target,
             duration=duration,
             seed=seed + step_idx,  # deterministic but varied
-            policy_name=policy_name,
+            agent_name=agent_name,
             reward_name=reward_name,  # Pass the reward function name
+            agent=agent
         )
 
         if result["status"] != 0:
@@ -118,10 +122,17 @@ def main():
     parser.add_argument("--duration", type=int, default=60)
     parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--policy", type=str, default="heuristic")
+    parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
     parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
     args = parser.parse_args()
+
+    if args.agent == "greedy":
+        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
+    else:
+        logger.info("Other agents are not supported yet, greedy MC agent is used.")
+        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
+        # cpu, mem, replicas, pending_pods
 
     return run_episode(
         trace_path=args.trace,
@@ -131,8 +142,9 @@ def main():
         duration=args.duration,
         steps=args.steps,
         seed=args.seed,
-        policy_name=args.policy,
+        agent_name=args.agent,
         reward_name=args.reward,
+        agent = agent
     )
 
 
