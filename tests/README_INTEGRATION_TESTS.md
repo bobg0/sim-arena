@@ -10,7 +10,9 @@ The `test_runner_integration.py` file contains comprehensive integration tests f
 1. **`deterministic_id()`** - Generates consistent, deterministic 8-character IDs
 2. **`write_step_record()`** - Appends records to `runs/step.jsonl`
 3. **`update_summary()`** - Updates `runs/summary.json` with aggregated stats
-4. **`simple_policy()`** - Policy logic (bump_cpu_small if pending > 0, else noop)
+4. **`_extract_current_state()`** - Extracts CPU, memory, replicas from trace
+5. **`apply_action()`** - Applies actions to trace with safeguard validation
+6. **`get_policy("heuristic")`** - Policy logic (bump_cpu_small if pending > 0, else noop)
 
 ### End-to-End Integration Tests
 5. **Happy path with action** - Tests complete flow when policy takes action (bump_cpu_small)
@@ -28,7 +30,9 @@ All Kubernetes dependencies are mocked using `unittest.mock.patch`:
 - **`env.create_simulation`** - Creates Simulation CR or ConfigMap
 - **`env.wait_fixed`** - Sleeps for duration (mocked to avoid waiting)
 - **`observe.reader.observe`** - Lists and counts pods by status
+- **`observe.reader.current_requests`** - Gets deployment resource requests
 - **`env.delete_simulation`** - Cleanup (delete Simulation CR)
+- **`shutil.copy2`** - Copy trace to kind-node-data (avoids writing outside sandbox)
 
 ## Running the Tests
 
@@ -60,15 +64,15 @@ Provides pre-configured mocks for all Kubernetes operations:
 ## Key Assertions
 
 Each integration test verifies:
-1. ✅ Correct return value (0 for success)
-2. ✅ All K8s functions called in correct order
+1. ✅ Correct return value (result["status"] == 0 for success)
+2. ✅ All K8s functions called in correct order (virtual-default for observe/hooks)
 3. ✅ Trace file modified and saved correctly
 4. ✅ Log files (`step.jsonl`, `summary.json`) created with expected content
 5. ✅ Cleanup runs even on errors (finally block)
 
 ## Test Coverage
 
-Current coverage: **12/12 tests passing** (100%)
+Current coverage: **16/16 tests passing** in test_runner_integration.py (100%)
 
 Test scenarios cover:
 - ✅ Happy path execution

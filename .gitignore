@@ -134,11 +134,10 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments (use .venv/ or venv/ for virtualenv; env/ is our package)
 .env
 .envrc
 .venv
-env/
 venv/
 ENV/
 env.bak/
@@ -211,3 +210,4 @@ __marimo__/
 .tmp/trace-next.msgpack
 runs/step.jsonl
 runs/summary.json
+demo/traces/

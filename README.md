@@ -67,8 +67,9 @@ sim-arena/
 │
 ├── runner/                    # Agent orchestration
 │   ├── one_step.py           # Main loop (run ONE agent step)
+│   ├── multi_step.py         # Run MANY steps (episodes)
 │   ├── policies.py           # Hand-coded policies (6 policies)
-│   └── multi_step.py         # Run MANY steps (episodes)
+│   └── safeguards.py         # Resource limit validation
 │
 ├── env/                       # Environment (simulation wrapper)
 │   ├── sim_env.py            # Create/delete SimKube simulations
@@ -95,6 +96,17 @@ sim-arena/
     ├── step.jsonl            # One line per step
     └── summary.json          # Aggregated stats
 ```
+
+---
+
+## Namespaces: `--ns` vs `virtual-default`
+
+SimKube creates pods in a **virtual namespace** derived from the trace: `virtual-<trace-namespace>`. Our demo traces use namespace `"default"`, so pods appear in **`virtual-default`**.
+
+- **`--ns`** (e.g. `test-ns`) is where the *Simulation CR* lives and where preflight checks run.
+- **Pods** are created in `virtual-default` (not in `--ns`).
+- To view pods: `kubectl get pods -n virtual-default`
+- `make clean-ns` cleans `virtual-default` (where the pods actually are).
 
 ---
 
@@ -286,18 +298,14 @@ observe(namespace, deploy) → {"ready": 2, "pending": 1, "total": 3}
 
 ---
 
-### 6. `observe/reward.py` (25 lines) - **REWARD FUNCTION**
+### 6. `observe/reward.py` - **REWARD FUNCTION**
 
 **What it does**: Decide if the agent succeeded
 
-**Current logic:**
-```python
-def reward(obs, target_total, T_s):
-    if obs["ready"] == target_total and obs["pending"] == 0:
-        return 1  # Success!
-    else:
-        return 0  # Failed
-```
+**Reward functions:**
+- `base` - Binary (1 if ready==target and pending==0, else 0)
+- `shaped` - Continuous (-1 to 1) with distance-based penalties
+- `max_punish` - Base + penalties for exceeding CPU/memory/replica limits
 
 **Why it's separate:**
 - Will be used by external learning agents
@@ -542,6 +550,14 @@ cat runs/summary.json
 --policy scale_replicas # Always add replicas
 ```
 
+### Reward Functions
+
+```bash
+--reward base        # Binary (0 or 1)
+--reward shaped      # Continuous (-1 to 1) with distance-based penalties
+--reward max_punish  # Base + penalties for exceeding resource limits
+```
+
 ### Run Multiple Episodes
 
 ```bash
@@ -551,7 +567,8 @@ python runner/multi_step.py \
   --deploy web \
   --target 3 \
   --duration 60 \
-  --steps 10
+  --steps 10 \
+  --reward shaped
 ```
 
 ---

@@ -1,7 +1,6 @@
 # observe/reward.py
 
 from typing import Callable, Dict
-import logging
 from runner.safeguards import (
     parse_cpu_to_millicores,
     parse_memory_to_bytes,
@@ -9,8 +8,6 @@ from runner.safeguards import (
     MAX_MEMORY_BYTES,
     MAX_REPLICAS,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def reward_base(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
@@ -85,13 +82,9 @@ def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict) -> fl
     
     # Clamp reward between -1.0 and 1.0
     final_reward = max(-1.0, min(1.0, reward))
-    
-    # Debug logging
-    logger.info(f"[SHAPED REWARD] ready={ready}, pending={pending}, total={total}, target={target_total}, computed={reward:.2f}, final={final_reward:.2f}")
-    
     return final_reward
 
-def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
+def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
     """
     Penalize exceeding max resource limits.
     """

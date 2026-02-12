@@ -13,11 +13,13 @@ import pytest
 # Import the functions we're testing
 from runner.one_step import (
     one_step,
-    simple_policy,
+    apply_action,
+    _extract_current_state,
     deterministic_id,
     write_step_record,
     update_summary,
 )
+from runner.policies import get_policy
 
 
 @pytest.fixture
@@ -86,18 +88,23 @@ def mock_k8s_deps():
          patch('runner.one_step.create_simulation') as mock_create, \
          patch('runner.one_step.wait_fixed') as mock_wait, \
          patch('runner.one_step.observe') as mock_observe, \
-         patch('runner.one_step.delete_simulation') as mock_delete:
+         patch('runner.one_step.current_requests') as mock_current_requests, \
+         patch('runner.one_step.delete_simulation') as mock_delete, \
+         patch('runner.one_step.shutil.copy2') as mock_copy:
         
         # Configure mock returns
         mock_create.return_value = "sim-test-12345678"
         mock_observe.return_value = {"ready": 2, "pending": 1, "total": 3}
+        mock_current_requests.return_value = {"cpu": "100m", "memory": "128Mi", "replicas": 2}
         
         yield {
             "hooks": mock_hooks,
             "create": mock_create,
             "wait": mock_wait,
             "observe": mock_observe,
+            "current_requests": mock_current_requests,
             "delete": mock_delete,
+            "copy": mock_copy,
         }
 
 
@@ -196,21 +203,178 @@ def test_update_summary_append(tmp_path):
         assert len(summary["steps"]) == 2
 
 
-def test_simple_policy_with_pending():
-    """Test that simple_policy chooses bump_cpu_small when pods are pending."""
+def test_heuristic_policy_with_pending():
+    """Test that heuristic policy chooses bump_cpu_small when pods are pending."""
+    policy = get_policy("heuristic")
     obs = {"ready": 2, "pending": 1, "total": 3}
-    action = simple_policy(obs, deploy="web")
+    action = policy(obs=obs, deploy="web")
     
     assert action["type"] == "bump_cpu_small"
     assert action["deploy"] == "web"
 
 
-def test_simple_policy_noop():
-    """Test that simple_policy chooses noop when no pods are pending."""
+def test_heuristic_policy_noop():
+    """Test that heuristic policy chooses noop when no pods are pending."""
+    policy = get_policy("heuristic")
     obs = {"ready": 3, "pending": 0, "total": 3}
-    action = simple_policy(obs, deploy="web")
+    action = policy(obs=obs, deploy="web")
     
     assert action["type"] == "noop"
+
+
+def test_extract_current_state():
+    """Test _extract_current_state extracts CPU, memory, replicas from trace."""
+    trace = {
+        "events": [
+            {
+                "applied_objs": [
+                    {
+                        "kind": "Deployment",
+                        "metadata": {"name": "web"},
+                        "spec": {
+                            "replicas": 3,
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {
+                                            "resources": {
+                                                "requests": {
+                                                    "cpu": "500m",
+                                                    "memory": "256Mi"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    state = _extract_current_state(trace, "web")
+    assert state["cpu"] == "500m"
+    assert state["memory"] == "256Mi"
+    assert state["replicas"] == 3
+
+
+def test_extract_current_state_deployment_not_found():
+    """Test _extract_current_state returns defaults when deployment not found."""
+    trace = {"events": [{"applied_objs": []}]}
+    state = _extract_current_state(trace, "nonexistent")
+    assert state["cpu"] == "0m"
+    assert state["memory"] == "0Mi"
+    assert state["replicas"] == 0
+
+
+def test_apply_action_noop(tmp_path):
+    """Test apply_action with noop saves trace unchanged."""
+    from env.actions.trace_io import load_trace, save_trace
+    trace_path = tmp_path / "trace.msgpack"
+    out_path = tmp_path / "out.msgpack"
+    trace_data = {
+        "events": [
+            {
+                "applied_objs": [
+                    {
+                        "kind": "Deployment",
+                        "metadata": {"name": "web"},
+                        "spec": {
+                            "replicas": 2,
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {"resources": {"requests": {"cpu": "100m", "memory": "128Mi"}}}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    save_trace(trace_data, str(trace_path))
+    out_path_arg, info = apply_action(str(trace_path), {"type": "noop"}, "web", str(out_path))
+    assert info["action_type"] == "noop"
+    assert info["blocked"] is False
+    assert info["changed"] is False
+    loaded = load_trace(str(out_path))
+    assert loaded["events"][0]["applied_objs"][0]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"] == "100m"
+
+
+def test_apply_action_bump_cpu(tmp_path):
+    """Test apply_action with bump_cpu_small modifies trace."""
+    from env.actions.trace_io import load_trace, save_trace
+    trace_path = tmp_path / "trace.msgpack"
+    out_path = tmp_path / "out.msgpack"
+    trace_data = {
+        "events": [
+            {
+                "applied_objs": [
+                    {
+                        "kind": "Deployment",
+                        "metadata": {"name": "web"},
+                        "spec": {
+                            "replicas": 2,
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {"resources": {"requests": {"cpu": "100m", "memory": "128Mi"}}}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    save_trace(trace_data, str(trace_path))
+    out_path_arg, info = apply_action(str(trace_path), {"type": "bump_cpu_small", "step": "500m"}, "web", str(out_path))
+    assert info["changed"] is True
+    assert info["blocked"] is False
+    loaded = load_trace(str(out_path))
+    assert loaded["events"][0]["applied_objs"][0]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"] == "600m"
+
+
+def test_apply_action_blocked_by_safeguards(tmp_path):
+    """Test apply_action with bump_cpu_small is blocked when CPU exceeds limit."""
+    from env.actions.trace_io import load_trace, save_trace
+    # CPU at 16000m (16 CPUs) = at limit; bumping 500m would exceed
+    trace_path = tmp_path / "trace.msgpack"
+    out_path = tmp_path / "out.msgpack"
+    trace_data = {
+        "events": [
+            {
+                "applied_objs": [
+                    {
+                        "kind": "Deployment",
+                        "metadata": {"name": "web"},
+                        "spec": {
+                            "replicas": 2,
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {"resources": {"requests": {"cpu": "16000m", "memory": "512Mi"}}}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    save_trace(trace_data, str(trace_path))
+    out_path_arg, info = apply_action(str(trace_path), {"type": "bump_cpu_small", "step": "500m"}, "web", str(out_path))
+    assert info["blocked"] is True
+    assert info["changed"] is False
+    assert "error" in info
+    # Trace should be saved unchanged
+    loaded = load_trace(str(out_path))
+    assert loaded["events"][0]["applied_objs"][0]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["cpu"] == "16000m"
 
 
 # ===== Integration Tests for one_step() =====
@@ -233,11 +397,12 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
         seed=42
     )
     
-    # Verify return value
-    assert result == 0
+    # Verify return value (one_step returns dict with status)
+    assert result["status"] == 0
     
     # Verify all K8s functions were called in order
-    mock_k8s_deps["hooks"].assert_called_once_with("pre_start", "test-ns")
+    # one_step uses virtual-default for observe/hooks (SimKube creates pods there)
+    mock_k8s_deps["hooks"].assert_called_once_with("pre_start", "virtual-default")
     
     # Check create_simulation was called with correct args
     create_call = mock_k8s_deps["create"].call_args
@@ -246,7 +411,7 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
     assert "diag-" in create_call[1]["name"]
     
     mock_k8s_deps["wait"].assert_called_once_with(10)
-    mock_k8s_deps["observe"].assert_called_once_with("test-ns", "web")
+    mock_k8s_deps["observe"].assert_called_once_with("virtual-default", "web")
     
     # Check delete_simulation was called (cleanup)
     mock_k8s_deps["delete"].assert_called_once()
@@ -260,7 +425,7 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
     from env.actions.trace_io import load_trace
     modified_trace = load_trace(str(tmp_trace))
     
-    # CPU should have been bumped by 500m (100m -> 600m)
+    # CPU should have been bumped by 500m (100m -> 600m) by heuristic policy
     container = modified_trace["events"][0]["applied_objs"][0]["spec"]["template"]["spec"]["containers"][0]
     assert container["resources"]["requests"]["cpu"] == "600m"
     
@@ -275,7 +440,7 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
     step_records = [json.loads(line) for line in step_log.read_text().strip().split('\n')]
     assert len(step_records) == 1
     record = step_records[0]
-    assert record["namespace"] == "test-ns"
+    assert record["namespace"] == "virtual-default"
     assert record["obs"] == {"ready": 2, "pending": 1, "total": 3}
     assert record["action"]["type"] == "bump_cpu_small"
     assert record["reward"] == 0  # Not all ready, so reward is 0
@@ -297,7 +462,7 @@ def test_one_step_noop_action(temp_workspace, mock_k8s_deps, monkeypatch):
         seed=42
     )
     
-    assert result == 0
+    assert result["status"] == 0
     
     # Verify trace was still saved (copy)
     tmp_trace = temp_workspace["root"] / ".tmp" / "trace-next.msgpack"
@@ -349,7 +514,7 @@ def test_one_step_creates_directories(temp_workspace, mock_k8s_deps, monkeypatch
         seed=42
     )
     
-    assert result == 0
+    assert result["status"] == 0
     
     # Verify .tmp directory was created
     assert (temp_workspace["root"] / ".tmp").exists()
@@ -382,7 +547,7 @@ def test_one_step_idempotency(temp_workspace, mock_k8s_deps, monkeypatch):
         seed=42
     )
     
-    assert result1 == result2 == 0
+    assert result1["status"] == result2["status"] == 0
     
     # Verify logs were appended (2 records)
     step_log = temp_workspace["root"] / "runs" / "step.jsonl"
@@ -390,7 +555,7 @@ def test_one_step_idempotency(temp_workspace, mock_k8s_deps, monkeypatch):
     assert len(step_records) == 2
     
     # Both records should have same parameters
-    assert step_records[0]["namespace"] == step_records[1]["namespace"] == "test-ns"
+    assert step_records[0]["namespace"] == step_records[1]["namespace"] == "virtual-default"
     assert step_records[0]["seed"] == step_records[1]["seed"] == 42
     
     # Note: sim_name will differ because timestamp changes between calls
