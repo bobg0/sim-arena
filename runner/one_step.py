@@ -4,44 +4,41 @@ runner/one_step.py
 Orchestrate one reproducible agent step:
 pre_start hook -> create_simulation -> wait_fixed -> observe -> policy -> edit trace -> save trace -> reward -> log
 
-
 Usage:
-  # Basic example with binary reward
+  # Basic example with epsilon-greedy agent
   python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 60
-  
-  # Using shaped reward function for better RL training
+
+  # With shaped reward for better RL training
   python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --reward shaped
 """
+import argparse
+import json
+import logging
 import sys
+import time
+import hashlib
+import random
+import shutil
 from pathlib import Path
-from agent.agent import Agent, AgentType
+from datetime import datetime, timezone
 
-# Add project root to Python path so imports work
+# Add project root to Python path (must be before local imports)
 script_dir = Path(__file__).parent.absolute()
 project_root = script_dir.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-import argparse
-import json
-import logging
-import os
-import sys
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-import hashlib
-import random
-import shutil
+from agent.agent import Agent, AgentType
 
 # Import project modules
 from ops.hooks import run_hooks
 from env import create_simulation, wait_fixed, delete_simulation
 from observe.reader import observe, current_requests
-from observe.reward import REWARD_REGISTRY, get_reward
+from observe.reward import get_reward
 from env.actions.trace_io import load_trace, save_trace
 from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
 from runner.safeguards import validate_action
+from runner.policies import get_policy
 
 # ---- Logging setup ----
 LOG_DIR = Path("runs")
@@ -116,7 +113,6 @@ def apply_action(trace_path: str, action: dict, deploy: str, output_path: str) -
             "error": error_msg
         }
     
-    trace = load_trace(trace_path)
     action_type = action.get("type", "noop")
     changed = False
     
@@ -171,19 +167,14 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
-    local_trace_path = str(trace_path)  # Keep local path for file operations
+    local_trace_path = str(trace_path)
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_dir = "~/.local/kind-node-data/test-cluster/"
-    out_trace_path = tmp_dir + "trace-next.msgpack"
-    
-    # Convert to cluster-accessible URL for SimKube
-    # if not local_trace_path.startswith(("file://", "http://", "https://")):
+    out_trace_path = str(tmp_dir / "trace-next.msgpack")
+
+    # SimKube driver reads trace at file:///data/<filename> (mounted from kind node data dir)
     trace_filename = Path(local_trace_path).name
     cluster_trace_path = f"file:///data/{trace_filename}"
-
-
-    # IGNORE:cp demo/trace-0001.msgpack ~/.local/kind-node-data/test-cluster/trace-0001.msgpack
     
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     
@@ -218,34 +209,38 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         # 4) observe cluster state
         logger.info(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
-        # obs = observe(namespace, deploy)
-
         logger.info(f"Observation: {obs}")
         resources = current_requests(virtual_namespace, deploy)
         logger.info(f"Current requests: {resources}")
 
         
-        # 5) policy decision
-        if agent_name == "greedy":
-            action_idx = agent.act()  # This returns an int, e.g., 3
-        elif agent_name == "dqn":
-            dqn_state = [int(resources["cpu"][0:-1]), int(resources["memory"][0:-2]), resources["replicas"], obs["pending"]]
-            action_idx = agent.act(dqn_state)
-            
-            # cpu, mem, replicas, pending_pods
-        
+        # 5) Policy/agent decision
         ACTION_SPACE = {
             0: {"type": "noop"},
             1: {"type": "bump_cpu_small", "step": "500m"},
             2: {"type": "bump_mem_small", "step": "256Mi"},
-            3: {"type": "scale_up_replicas", "delta": 1}
+            3: {"type": "scale_up_replicas", "delta": 1},
         }
-        
-        # Convert index to dictionary for the system
-        action = ACTION_SPACE.get(action_idx, {"type": "noop"})
 
-        logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
-        logger.info(f"Mapped to system action: {action}")
+        if agent_name == "greedy" and agent is not None:
+            action_idx = agent.act()
+            action = ACTION_SPACE.get(action_idx, {"type": "noop"})
+            logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
+        elif agent_name == "dqn" and agent is not None:
+            dqn_state = [
+                int(resources["cpu"].rstrip("m") or 0),
+                int(str(resources["memory"]).rstrip("Mi") or 0),
+                resources["replicas"],
+                obs.get("pending", 0),
+            ]
+            action_idx = agent.act(dqn_state)
+            action = ACTION_SPACE.get(action_idx, {"type": "noop"})
+            logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
+        else:
+            # Policy-based (heuristic, scale_replicas, etc.)
+            policy_fn = get_policy(agent_name)
+            action = policy_fn(obs=obs, deploy=deploy)
+            logger.info(f"Policy '{agent_name}' chose action: {action}")
         
         # 6) Apply action to trace (use local path)
         logger.info(f"Applying action: {action}")
@@ -262,21 +257,23 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             shutil.copy2(out_trace_path, kind_trace_path)
             logger.info(f"Copied trace to kind: {kind_trace_path}")
         
-        # 7) compute reward
+        # 7) Compute reward
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
 
-        # Update Agent
-        if agent_name == "greedy":
-           agent.update(action_idx, r)
-        elif agent_name == "dqn":
-            logger.info(f"Observing new cluster state in {virtual_namespace}...")
+        # Update agent (only for learning agents)
+        if agent_name == "greedy" and agent is not None:
+            agent.update(action_idx, r)
+        elif agent_name == "dqn" and agent is not None:
             obs_new = observe(virtual_namespace, deploy)
-            logger.info(f"Observation: {obs_new}")
             resources_new = current_requests(virtual_namespace, deploy)
-            logger.info(f"New requests: {resources}")
-            dqn_state_new = [int(resources_new["cpu"][0:-1]), int(resources_new["memory"][0:-2]), resources_new["replicas"], obs_new["pending"]]
-            action_idx = agent.update(dqn_state, action_idx, dqn_state_new, r, True)
+            dqn_state_new = [
+                int(str(resources_new["cpu"]).rstrip("m") or 0),
+                int(str(resources_new["memory"]).rstrip("Mi") or 0),
+                resources_new["replicas"],
+                obs_new.get("pending", 0),
+            ]
+            agent.update(dqn_state, action_idx, dqn_state_new, r, True)
 
         logger.info(f"Reward computed: {r}")
         
@@ -331,17 +328,19 @@ def main():
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
+    parser.add_argument("--agent", type=str, default="greedy", help="Agent/policy: greedy, dqn, heuristic, scale_replicas, etc.")
     parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
 
 
     args = parser.parse_args()
+
+    agent = None
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     elif args.agent == "dqn":
         agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
-        # cpu, mem, replicas, pending_pods
-    
+    # else: use policy (heuristic, scale_replicas, etc.) via get_policy
+
     result = one_step(
         trace_path=args.trace,
         namespace=args.namespace,
@@ -351,7 +350,7 @@ def main():
         seed=args.seed,
         agent_name=args.agent,
         reward_name=args.reward,
-        agent = agent
+        agent=agent,
     )
     return result["status"]
 

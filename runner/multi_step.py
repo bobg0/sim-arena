@@ -127,14 +127,15 @@ def main():
 
     args = parser.parse_args()
 
+    # Only create agent for learning agents; policy-based agents use get_policy()
+    agent = None
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
-    else:
-        logger.info("Other agents are not supported yet, greedy MC agent is used.")
-        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
-        # cpu, mem, replicas, pending_pods
+    elif args.agent == "dqn":
+        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+    # else: heuristic, scale_replicas, etc. use policy via one_step
 
-    return run_episode(
+    result = run_episode(
         trace_path=args.trace,
         namespace=args.namespace,
         deploy=args.deploy,
@@ -144,8 +145,9 @@ def main():
         seed=args.seed,
         agent_name=args.agent,
         reward_name=args.reward,
-        agent = agent
+        agent=agent,
     )
+    return 0 if result["status"] == 0 else 1
 
 
 if __name__ == "__main__":
