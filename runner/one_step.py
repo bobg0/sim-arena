@@ -249,7 +249,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Action complete. Changed: {trace_changed}")
         
         # 6b) Copy output trace to kind node data directory (always, for multi-step runs)
-        kind_data_dir = Path.home() / ".local/kind-node-data/cluster"
+        kind_data_dir = Path.home() / ".local" / "kind-node-data" / namespace
         kind_data_dir.mkdir(parents=True, exist_ok=True)
         trace_filename = Path(out_trace_path).name
         kind_trace_path = kind_data_dir / trace_filename
