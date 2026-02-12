@@ -211,3 +211,4 @@ __marimo__/
 runs/step.jsonl
 runs/summary.json
 demo/traces/
+demo/trace-next.msgpack
