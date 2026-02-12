@@ -69,6 +69,7 @@ def test_run_episode_calls_one_step_with_policy(tmp_path):
         call_kwargs = mock_one_step.call_args[1]
         assert call_kwargs["agent_name"] == "heuristic"
         assert call_kwargs["agent"] is None
+        assert call_kwargs["reward_name"] == "shaped"  # default for multi-step
 
 
 def test_run_episode_stops_on_failure(tmp_path):
