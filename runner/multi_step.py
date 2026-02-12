@@ -5,13 +5,17 @@ Run multiple sequential agent steps (episodes) using the existing one_step runne
 
 Sample usage:
 
-python runner/multi_step.py \
-  --trace demo/trace-0001.msgpack \
+# Use scale_replicas to grow pods each step (good for testing multi-step)
+PYTHONPATH=. python runner/multi_step.py \
+  --trace demo/trace-scaling-v2.msgpack \
   --ns test-ns \
   --deploy web \
-  --target 3 \
+  --target 5 \
   --steps 5 \
+  --agent scale_replicas \
   --log-level DEBUG
+
+# heuristic only acts when pending>0 (bumps CPU), so often chooses noop if all ready
 """
 
 import sys
@@ -41,7 +45,7 @@ def run_episode(
     steps: int,
     seed: int = 0,
     agent_name: str = "greedy",
-    reward_name: str = "base",
+    reward_name: str = "shaped",
     agent = None
 ):
     """
@@ -144,7 +148,7 @@ def main():
     parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
+    parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
 
     args = parser.parse_args()

@@ -402,7 +402,7 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
     
     # Verify all K8s functions were called in order
     # one_step uses virtual-default for observe/hooks (SimKube creates pods there)
-    mock_k8s_deps["hooks"].assert_called_once_with("pre_start", "virtual-default")
+    mock_k8s_deps["hooks"].assert_called_once_with("pre_start", "virtual-default", deploy="web")
     
     # Check create_simulation was called with correct args
     create_call = mock_k8s_deps["create"].call_args
@@ -443,7 +443,8 @@ def test_one_step_happy_path_with_action(temp_workspace, mock_k8s_deps, monkeypa
     assert record["namespace"] == "virtual-default"
     assert record["obs"] == {"ready": 2, "pending": 1, "total": 3}
     assert record["action"]["type"] == "bump_cpu_small"
-    assert record["reward"] == 0  # Not all ready, so reward is 0
+    # reward_shaped: distance=1 (-0.1), pending=1 (-0.05) -> -0.15
+    assert record["reward"] == pytest.approx(-0.15)
 
 
 def test_one_step_noop_action(temp_workspace, mock_k8s_deps, monkeypatch):
@@ -472,7 +473,7 @@ def test_one_step_noop_action(temp_workspace, mock_k8s_deps, monkeypatch):
     step_log = temp_workspace["root"] / "runs" / "step.jsonl"
     step_records = [json.loads(line) for line in step_log.read_text().strip().split('\n')]
     assert step_records[0]["action"]["type"] == "noop"
-    assert step_records[0]["reward"] == 1  # All ready, reward should be 1
+    assert step_records[0]["reward"] == 1.0  # reward_shaped: perfect match -> 1.0
 
 
 def test_one_step_cleanup_on_error(temp_workspace, mock_k8s_deps, monkeypatch):

@@ -124,7 +124,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "base", agent = None):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent = None):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -138,8 +138,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     virtual_namespace = "virtual-default"
     
-    logger.info("-" * 60)
-    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, agent={agent_name}")
+    logger.info(f"Starting one_step run: sim_name={sim_name}, ns={namespace} (virtual={virtual_namespace}), trace={cluster_trace_path}, deploy={deploy}, target={target}, duration={duration}, agent={agent_name}, reward={reward_name}")
 
     sim_uid = None
     start_time = time.time()
@@ -148,8 +147,11 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
 
     try:
         # 1) pre_start hook
+        # NOTE: Clean up virtual namespace where SimKube creates pods.
+        # Pass deploy so we wait for previous deployment cleanup (fixes step 5 404).
         logger.debug(f"Running pre_start hooks in {virtual_namespace}...")
-        run_hooks("pre_start", virtual_namespace)
+        run_hooks("pre_start", virtual_namespace, deploy=deploy)
+        logger.debug("pre_start hooks completed.")
         
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
@@ -200,15 +202,15 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
         
-        # 6b) Copy output trace to kind node
-        kind_data_dir = Path.home() / ".local" / "kind-node-data" / namespace
+        # 6b) Copy output trace to kind node data directory (SimKube reads from file:///data/)
+        kind_data_dir = Path.home() / ".local" / "kind-node-data" / "cluster"
         kind_data_dir.mkdir(parents=True, exist_ok=True)
         kind_trace_path = kind_data_dir / Path(out_trace_path).name
         if Path(out_trace_path).exists():
             shutil.copy2(out_trace_path, kind_trace_path)
             logger.debug(f"Copied trace to kind: {kind_trace_path}")
         
-        # 7) Compute reward
+        # 7) Compute reward (use reward_shaped for continuous RL feedback)
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
         logger.debug(f"Reward computed: {r}")
@@ -261,7 +263,7 @@ def main():
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent/policy: greedy, dqn, heuristic, scale_replicas, etc.")
-    parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
+    parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
 
     args = parser.parse_args()
