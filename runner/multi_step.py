@@ -93,6 +93,19 @@ def run_episode(
         # Accumulate reward
         total_reward += record.get("reward", 0)
 
+        # ---------------------------------------------------------
+        # AUTO-TERMINATION LOGIC
+        # ---------------------------------------------------------
+        obs = record.get("obs", {})
+        ready = obs.get("ready", 0)
+        total = obs.get("total", 0)
+        pending = obs.get("pending", 0)
+        
+        # Check if we have achieved the perfect target state
+        if ready == target and total == target and pending == 0:
+            logger.info(f"🎯 Target state reached at step {step_idx + 1}! Terminating episode early.")
+            break
+
     elapsed = time.time() - start_time
 
     logger.info("=" * 60)
