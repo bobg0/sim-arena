@@ -10,7 +10,8 @@ python runner/multi_step.py \
   --ns test-ns \
   --deploy web \
   --target 3 \
-  --steps 5
+  --steps 5 \
+  --log-level DEBUG
 """
 
 import sys
@@ -30,11 +31,6 @@ if str(project_root) not in sys.path:
 from runner.one_step import one_step
 
 logger = logging.getLogger("multi_step")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-
 
 def run_episode(
     trace_path: str,
@@ -52,23 +48,20 @@ def run_episode(
     Run a multi-step episode.
     Returns: dict with episode summary
     """
-    logger.info(
-        f"Starting episode: steps={steps}, trace={trace_path}, agent={agent_name}"
-    )
+    logger.info(f"Starting episode: max_steps={steps}, trace={trace_path}, agent={agent_name}")
 
     current_trace = trace_path
     episode_records = []
     total_reward = 0
     start_time = time.time()
 
-    # Memory pointers to hold s_{t-1} and a_{t-1}
     prev_dqn_state = None
     prev_action_idx = None
 
     for step_idx in range(steps):
-        logger.info("-" * 60)
-        logger.info(f"--- Processing State {step_idx} ---")
-        logger.info(f"Using trace: {current_trace}")
+        # Kept at debug so it doesn't flood standard training logs
+        logger.debug(f"--- Processing State {step_idx} ---")
+        logger.debug(f"Using trace: {current_trace}")
 
         result = one_step(
             trace_path=current_trace,
@@ -89,16 +82,13 @@ def run_episode(
         record = result["record"]
         episode_records.append(record)
 
-        # Update trace for next iteration
         current_trace = record["trace_out"]
         total_reward += record.get("reward", 0)
 
-        # Extract current state information (s_t, a_t, r_t)
         curr_dqn_state = record.get("dqn_state")
         curr_action_idx = record.get("action_idx")
         curr_reward = record.get("reward", 0)
 
-        # Check termination condition
         obs = record.get("obs", {})
         ready = obs.get("ready", 0)
         total = obs.get("total", 0)
@@ -106,10 +96,7 @@ def run_episode(
         
         done = (ready == target and total == target and pending == 0)
 
-        # ---------------------------------------------------------
-        # AGENT UPDATE (MDP Transition)
-        # We update using: s_{t-1}, a_{t-1}, r_t, s_t
-        # ---------------------------------------------------------
+        # Agent Update logic
         if step_idx > 0 and agent is not None:
             if agent_name == "greedy" and prev_action_idx is not None:
                 agent.update(prev_action_idx, curr_reward)
@@ -126,7 +113,6 @@ def run_episode(
             logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")
             break
 
-        # Shift pointers for the next state
         prev_dqn_state = curr_dqn_state
         prev_action_idx = curr_action_idx
 
@@ -137,7 +123,6 @@ def run_episode(
     logger.info(f"States evaluated: {len(episode_records)}")
     logger.info(f"Total reward: {total_reward}")
     logger.info(f"Elapsed time: {elapsed:.2f}s")
-    logger.info(f"Final trace: {current_trace}")
     logger.info("=" * 60)
 
     return {
@@ -148,7 +133,6 @@ def run_episode(
         "final_trace": current_trace,
         "records": episode_records,
     }
-
 
 def main():
     parser = argparse.ArgumentParser(description="Run multiple RL steps")
@@ -161,16 +145,22 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
     parser.add_argument("--reward", type=str, default="base", help="Reward function to use (base, shaped, max_punish)")
+    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
 
     args = parser.parse_args()
 
-    # Only create agent for learning agents; policy-based agents use get_policy()
+    # Configure root logger based on parsed arguments
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
     agent = None
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     elif args.agent == "dqn":
         agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
-    # else: heuristic, scale_replicas, etc. use policy via one_step
 
     result = run_episode(
         trace_path=args.trace,
@@ -185,7 +175,6 @@ def main():
         agent=agent,
     )
     return 0 if result["status"] == 0 else 1
-
 
 if __name__ == "__main__":
     sys.exit(main())
