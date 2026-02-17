@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import logging
 from typing import Literal, List, Dict, Any, Optional
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 HookStage = Literal["pre_start", "pre_run", "post_run", "post_stop"]
+
+logger = logging.getLogger("hooks")
 
 class LocalHooks:
     """
@@ -28,13 +31,13 @@ class LocalHooks:
         Returns:    Number of pods deleted
         """
 
-        print(f"Deleting pods in namespace '{namespace}'...")   
+        logger.debug(f"Deleting pods in namespace '{namespace}'...")   
         try:
             # List pods
             pod_list = self.core.list_namespaced_pod(namespace=namespace, limit=100)
             
             if not pod_list.items:
-                print(f"No pods found in namespace '{namespace}' (already clean)")
+                logger.debug(f"No pods found in namespace '{namespace}' (already clean)")
                 return 0
             
             # Delete each pod
@@ -51,19 +54,19 @@ class LocalHooks:
                         )
                     )
                     deleted_count += 1
-                    print(f". Deleted pod: {pod_name}")
+                    logger.debug(f". Deleted pod: {pod_name}")
                 except ApiException as e:
                     if e.status == 404:
-                        print(f"  • Pod {pod_name} already deleted")
+                        logger.debug(f"  • Pod {pod_name} already deleted")
                     else:
-                        print(f"  X Warning: Failed to delete pod {pod_name}: {e}")
+                        logger.warning(f"  X Warning: Failed to delete pod {pod_name}: {e}")
             
-            print(f"Deleted {deleted_count} pod(s) from namespace '{namespace}'")
+            logger.info(f"Deleted {deleted_count} pod(s) from namespace '{namespace}'")
             return deleted_count
             
         except ApiException as e:
             if e.status == 404:
-                print(f"Namespace '{namespace}' not found (nothing to clean)")
+                logger.debug(f"Namespace '{namespace}' not found (nothing to clean)")
                 return 0
             else:
                 raise
@@ -73,9 +76,9 @@ class LocalHooks:
         Pre-start hook: Clean environment before agent episode.
         This runs on your machine BEFORE creating a Simulation CR.
         """
-        print(f"=== pre_start hook for namespace '{namespace}' ===")
+        logger.debug(f"=== pre_start hook for namespace '{namespace}' ===")
         self.delete_all_pods(namespace)
-        print("pre_start hook completed\n")
+        logger.debug("pre_start hook completed")
 
 
 def run_hooks(stage: HookStage, namespace: str) -> None:
