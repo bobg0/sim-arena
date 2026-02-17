@@ -50,9 +50,7 @@ def run_episode(
 ):
     """
     Run a multi-step episode.
-
-    Returns:
-        dict with episode summary
+    Returns: dict with episode summary
     """
     logger.info(
         f"Starting episode: steps={steps}, trace={trace_path}, agent={agent_name}"
@@ -63,9 +61,13 @@ def run_episode(
     total_reward = 0
     start_time = time.time()
 
+    # Memory pointers to hold s_{t-1} and a_{t-1}
+    prev_dqn_state = None
+    prev_action_idx = None
+
     for step_idx in range(steps):
         logger.info("-" * 60)
-        logger.info(f"Episode step {step_idx + 1}/{steps}")
+        logger.info(f"--- Processing State {step_idx} ---")
         logger.info(f"Using trace: {current_trace}")
 
         result = one_step(
@@ -74,43 +76,65 @@ def run_episode(
             deploy=deploy,
             target=target,
             duration=duration,
-            seed=seed + step_idx,  # deterministic but varied
+            seed=seed + step_idx,
             agent_name=agent_name,
-            reward_name=reward_name,  # Pass the reward function name
+            reward_name=reward_name,
             agent=agent
         )
 
         if result["status"] != 0:
-            logger.error(f"Step {step_idx} failed, aborting episode.")
+            logger.error(f"State {step_idx} failed, aborting episode.")
             break
 
         record = result["record"]
         episode_records.append(record)
 
-        # Update trace for next step
+        # Update trace for next iteration
         current_trace = record["trace_out"]
-
-        # Accumulate reward
         total_reward += record.get("reward", 0)
 
-        # ---------------------------------------------------------
-        # AUTO-TERMINATION LOGIC
-        # ---------------------------------------------------------
+        # Extract current state information (s_t, a_t, r_t)
+        curr_dqn_state = record.get("dqn_state")
+        curr_action_idx = record.get("action_idx")
+        curr_reward = record.get("reward", 0)
+
+        # Check termination condition
         obs = record.get("obs", {})
         ready = obs.get("ready", 0)
         total = obs.get("total", 0)
         pending = obs.get("pending", 0)
         
-        # Check if we have achieved the perfect target state
-        if ready == target and total == target and pending == 0:
-            logger.info(f"🎯 Target state reached at step {step_idx + 1}! Terminating episode early.")
+        done = (ready == target and total == target and pending == 0)
+
+        # ---------------------------------------------------------
+        # AGENT UPDATE (MDP Transition)
+        # We update using: s_{t-1}, a_{t-1}, r_t, s_t
+        # ---------------------------------------------------------
+        if step_idx > 0 and agent is not None:
+            if agent_name == "greedy" and prev_action_idx is not None:
+                agent.update(prev_action_idx, curr_reward)
+            elif agent_name == "dqn" and prev_dqn_state is not None:
+                agent.update(
+                    state=prev_dqn_state, 
+                    action=prev_action_idx, 
+                    next_state=curr_dqn_state, 
+                    reward=curr_reward, 
+                    done=done
+                )
+
+        if done:
+            logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")
             break
+
+        # Shift pointers for the next state
+        prev_dqn_state = curr_dqn_state
+        prev_action_idx = curr_action_idx
 
     elapsed = time.time() - start_time
 
     logger.info("=" * 60)
     logger.info("Episode completed")
-    logger.info(f"Steps executed: {len(episode_records)}")
+    logger.info(f"States evaluated: {len(episode_records)}")
     logger.info(f"Total reward: {total_reward}")
     logger.info(f"Elapsed time: {elapsed:.2f}s")
     logger.info(f"Final trace: {current_trace}")

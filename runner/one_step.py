@@ -213,6 +213,13 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         resources = current_requests(virtual_namespace, deploy)
         logger.info(f"Current requests: {resources}")
 
+        # Create DQN state representation
+        dqn_state = [
+            int(str(resources["cpu"]).rstrip("m") or 0),
+            int(str(resources["memory"]).rstrip("Mi") or 0),
+            resources["replicas"],
+            obs.get("pending", 0),
+        ]
         
         # 5) Policy/agent decision
         ACTION_SPACE = {
@@ -222,17 +229,12 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             3: {"type": "scale_up_replicas", "delta": 1},
         }
 
+        action_idx = None
         if agent_name == "greedy" and agent is not None:
             action_idx = agent.act()
             action = ACTION_SPACE.get(action_idx, {"type": "noop"})
             logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
         elif agent_name == "dqn" and agent is not None:
-            dqn_state = [
-                int(resources["cpu"].rstrip("m") or 0),
-                int(str(resources["memory"]).rstrip("Mi") or 0),
-                resources["replicas"],
-                obs.get("pending", 0),
-            ]
             action_idx = agent.act(dqn_state)
             action = ACTION_SPACE.get(action_idx, {"type": "noop"})
             logger.info(f"Agent '{agent_name}' chose action index: {action_idx}")
@@ -248,7 +250,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         trace_changed = action_info.get("changed", False)
         logger.info(f"Action complete. Changed: {trace_changed}")
         
-        # 6b) Copy output trace to kind node data directory (always, for multi-step runs)
+        # 6b) Copy output trace to kind node data directory
         kind_data_dir = Path.home() / ".local" / "kind-node-data" / namespace
         kind_data_dir.mkdir(parents=True, exist_ok=True)
         trace_filename = Path(out_trace_path).name
@@ -257,24 +259,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             shutil.copy2(out_trace_path, kind_trace_path)
             logger.info(f"Copied trace to kind: {kind_trace_path}")
         
-        # 7) Compute reward
+        # 7) Compute reward for the CURRENT state
         reward_fn = get_reward(reward_name)
         r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
-
-        # Update agent (only for learning agents)
-        if agent_name == "greedy" and agent is not None:
-            agent.update(action_idx, r)
-        elif agent_name == "dqn" and agent is not None:
-            obs_new = observe(virtual_namespace, deploy)
-            resources_new = current_requests(virtual_namespace, deploy)
-            dqn_state_new = [
-                int(str(resources_new["cpu"]).rstrip("m") or 0),
-                int(str(resources_new["memory"]).rstrip("Mi") or 0),
-                resources_new["replicas"],
-                obs_new.get("pending", 0),
-            ]
-            agent.update(dqn_state, action_idx, dqn_state_new, r, True)
-
         logger.info(f"Reward computed: {r}")
         
         # 8) write logs: step.jsonl and summary.json
@@ -286,6 +273,8 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "trace_in": local_trace_path,
             "trace_out": out_trace_path,
             "obs": obs,
+            "dqn_state": dqn_state,    # Added for multi_step.py memory
+            "action_idx": action_idx,  # Added for multi_step.py memory
             "action": action,
             "action_info": action_info if action_info else {},
             "reward": float(r),  # Keep as float for shaped rewards
