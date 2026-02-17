@@ -18,14 +18,25 @@ def test_run_episode_calls_one_step(tmp_path):
     save_trace({"events": [{"applied_objs": []}]}, str(out_trace))
 
     with patch("runner.multi_step.one_step") as mock_one_step:
-        mock_one_step.return_value = {
-            "status": 0,
-            "record": {
-                "trace_out": str(out_trace),
-                "reward": 1,
-                "obs": {"ready": 3, "pending": 0, "total": 3},
+        # Step 1: not done (ready=2); Step 2: done (ready=3) -> early termination
+        mock_one_step.side_effect = [
+            {
+                "status": 0,
+                "record": {
+                    "trace_out": str(out_trace),
+                    "reward": 0,
+                    "obs": {"ready": 2, "pending": 0, "total": 2},
+                },
             },
-        }
+            {
+                "status": 0,
+                "record": {
+                    "trace_out": str(out_trace),
+                    "reward": 1,
+                    "obs": {"ready": 3, "pending": 0, "total": 3},
+                },
+            },
+        ]
         result = run_episode(
             trace_path=str(trace_path),
             namespace="test-ns",
@@ -40,7 +51,7 @@ def test_run_episode_calls_one_step(tmp_path):
         )
         assert result["status"] == 0
         assert result["steps_executed"] == 2
-        assert result["total_reward"] == 2
+        assert result["total_reward"] == 1
         assert len(result["records"]) == 2
         assert mock_one_step.call_count == 2
 
