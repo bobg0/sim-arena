@@ -246,16 +246,17 @@ class DQNAgent(BaseAgent):
         """Visualize the DQN Q-values for a sweep of representative states."""
         import matplotlib.pyplot as plt
 
-        # Baseline features: CPU=500m, Mem=512Mi, Pending=0
+        # Baseline features: CPU=500m, Mem=512Mi, Replica=1, Pending=0
         baseline_cpu = 500
         baseline_mem = 512
+        replicas = 1
         pending = 0
         
         # Sweep replicas from 1 to 5 to see how the network reacts
-        replicas_sweep = list(range(1, 6))
+        distance_sweep = list(range(1, 6))
         states = []
-        for r in replicas_sweep:
-            states.append([baseline_cpu, baseline_mem, r, pending])
+        for d in distance_sweep:
+            states.append([baseline_cpu, baseline_mem, replicas, pending, d])
             
         states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
         
@@ -267,25 +268,25 @@ class DQNAgent(BaseAgent):
         threshold = (q_max + q_min) / 2
 
         fig, ax = plt.subplots(figsize=(8, 6))
-        cax = ax.imshow(q_values.numpy(), aspect='auto', cmap='viridis')
+        cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
         fig.colorbar(cax, label='Estimated Q-Value')
         
         # Label axes
         ax.set_xticks(range(self.n_actions))
         ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
-        ax.set_yticks(range(len(replicas_sweep)))
-        ax.set_yticklabels([f"Rep={r}" for r in replicas_sweep])
+        ax.set_yticks(range(len(distance_sweep)))
+        ax.set_yticklabels([f"Distance={r}" for r in distance_sweep])
         
         # Annotate text on the heatmap for exact values
-        for i in range(len(replicas_sweep)):
+        for i in range(len(distance_sweep)):
             for j in range(self.n_actions):
                 val = q_values[i, j]
                 color = "black" if val > threshold else "white"
                 ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
                 
         plt.xlabel('Actions')
-        plt.ylabel('State (Varying Replicas)')
-        plt.title('DQN Q-Value Heatmap (CPU:500 / Mem:512 / Pending:0)')
+        plt.ylabel('State (Varying Distance)')
+        plt.title('DQN Q-Value Heatmap (CPU:500 / Mem:512 / Replica: 1 / Pending:0)')
         
         if save_path:
             plt.savefig(save_path)
