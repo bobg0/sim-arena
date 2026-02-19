@@ -245,8 +245,6 @@ class DQNAgent(BaseAgent):
     def visualize(self, save_path=None):
         """Visualize the DQN Q-values for a sweep of representative states."""
         import matplotlib.pyplot as plt
-        import torch
-        import numpy as np
 
         # Baseline features: CPU=500m, Mem=512Mi, Pending=0
         baseline_cpu = 500
@@ -262,10 +260,14 @@ class DQNAgent(BaseAgent):
         states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
         
         with torch.no_grad():
-            q_values = self.q_net(states_tensor).cpu().numpy()
-            
+            q_values = self.q_net(states_tensor).cpu()  # keep as torch tensor
+
+        q_min = torch.min(q_values)
+        q_max = torch.max(q_values)
+        threshold = (q_max + q_min) / 2
+
         fig, ax = plt.subplots(figsize=(8, 6))
-        cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
+        cax = ax.imshow(q_values.numpy(), aspect='auto', cmap='viridis')
         fig.colorbar(cax, label='Estimated Q-Value')
         
         # Label axes
@@ -277,9 +279,9 @@ class DQNAgent(BaseAgent):
         # Annotate text on the heatmap for exact values
         for i in range(len(replicas_sweep)):
             for j in range(self.n_actions):
-                # Choose text color based on background intensity for readability
-                color = "black" if q_values[i, j] > (np.max(q_values) + np.min(q_values)) / 2 else "white"
-                ax.text(j, i, f"{q_values[i, j]:.2f}", ha="center", va="center", color=color)
+                val = q_values[i, j]
+                color = "black" if val > threshold else "white"
+                ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
                 
         plt.xlabel('Actions')
         plt.ylabel('State (Varying Replicas)')
