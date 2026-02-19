@@ -145,7 +145,7 @@ def main():
             logger.info("=" * 60)
             
             # Ensure distinct but reproducible seed for each episode
-            ep_seed = base_seed + ep 
+            ep_seed = base_seed + ep * 1000
             
             # Run the episode
             result = run_episode(
