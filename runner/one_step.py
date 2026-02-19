@@ -131,7 +131,10 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
     local_trace_path = str(trace_path)
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    out_trace_path = str(tmp_dir / "trace-next.msgpack")
+
+    sim_id = deterministic_id(local_trace_path, namespace, deploy, target, timestamp)
+    sim_name = f"diag-{sim_id}"
+    out_trace_path = str(tmp_dir / f"trace-next-{sim_id}.msgpack")
 
     trace_filename = Path(local_trace_path).name
     cluster_trace_path = f"file:///data/{trace_filename}"
@@ -152,6 +155,27 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.debug(f"Running pre_start hooks in {virtual_namespace}...")
         run_hooks("pre_start", virtual_namespace, deploy=deploy)
         logger.debug("pre_start hooks completed.")
+
+        # 1.5) Copy the input trace to ALL kind nodes so simkube can read it
+        import subprocess
+        try:
+            # Dynamically get all nodes for this kind cluster
+            nodes_out = subprocess.run(
+                ["kind", "get", "nodes", "--name", namespace], 
+                check=True, capture_output=True, text=True
+            )
+            kind_nodes = [n for n in nodes_out.stdout.strip().split('\n') if n]
+        except Exception:
+            # Fallback if the command fails
+            kind_nodes = [f"{namespace}-control-plane", f"{namespace}-worker"]
+
+        logger.debug(f"Ensuring input trace {trace_filename} is inside all nodes: {kind_nodes}...")
+        for node in kind_nodes:
+            try:
+                subprocess.run(["docker", "exec", node, "mkdir", "-p", "/data"], check=True, capture_output=True)
+                subprocess.run(["docker", "cp", local_trace_path, f"{node}:/data/{trace_filename}"], check=True, capture_output=True)
+            except Exception as e:
+                logger.warning(f"Failed to copy input trace to {node}: {e}")
         
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
@@ -168,9 +192,23 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.info(f"Observation: {obs}")
         logger.info(f"Current requests: {resources}")
 
+        # Safely parse CPU to millicores (translates "1" -> 1000)
+        cpu_raw = str(resources.get("cpu", "0m"))
+        cpu_m = int(cpu_raw[:-1]) if cpu_raw.endswith("m") else int(float(cpu_raw) * 1000)
+
+        # Safely parse Memory to MiB (translates "1Gi" -> 1024)
+        mem_raw = str(resources.get("memory", "0Mi"))
+        if mem_raw.endswith("Gi"):
+            mem_mi = int(float(mem_raw[:-2]) * 1024)
+        elif mem_raw.endswith("Mi"):
+            mem_mi = int(mem_raw[:-2])
+        else:
+            # Fallback for raw bytes or unknown units
+            mem_mi = int("".join(filter(str.isdigit, mem_raw)) or 0)
+
         dqn_state = [
-            int(str(resources["cpu"]).rstrip("m") or 0),
-            int(str(resources["memory"]).rstrip("Mi") or 0),
+            cpu_m,
+            mem_mi,
             resources["replicas"],
             obs.get("pending", 0),
         ]
@@ -202,13 +240,16 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
         
-        # 6b) Copy output trace to kind node data directory (SimKube reads from file:///data/)
-        kind_data_dir = Path.home() / ".local" / "kind-node-data" / "cluster"
-        kind_data_dir.mkdir(parents=True, exist_ok=True)
-        kind_trace_path = kind_data_dir / Path(out_trace_path).name
-        if Path(out_trace_path).exists():
-            shutil.copy2(out_trace_path, kind_trace_path)
-            logger.debug(f"Copied trace to kind: {kind_trace_path}")
+        # 6b) Copy output trace to ALL kind nodes
+        logger.debug(f"Ensuring /data exists and copying trace to all nodes: {kind_nodes}...")
+        for node in kind_nodes:
+            try:
+                target_file = f"/data/{Path(out_trace_path).name}"
+                subprocess.run(["docker", "exec", node, "mkdir", "-p", "/data"], check=True, capture_output=True)
+                subprocess.run(["docker", "cp", out_trace_path, f"{node}:{target_file}"], check=True, capture_output=True)
+                logger.debug(f"Successfully copied trace to {node}:{target_file}")
+            except Exception as e:
+                logger.error(f"Failed to copy trace to {node}: {e}")
         
         # 7) Compute reward (use reward_shaped for continuous RL feedback)
         reward_fn = get_reward(reward_name)
