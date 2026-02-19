@@ -169,7 +169,7 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=4)
 
     if agent is not None and args.load:
         logger.info(f"Loading agent weights from {args.load}...")

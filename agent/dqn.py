@@ -285,7 +285,7 @@ class DQNAgent(BaseAgent):
                 
         plt.xlabel('Actions')
         plt.ylabel('State (Varying Replicas)')
-        plt.title('DQN Q-Value Heatmap (Fixed CPU/Mem/Pending)')
+        plt.title('DQN Q-Value Heatmap (CPU:500 / Mem:512 / Pending:0)')
         
         if save_path:
             plt.savefig(save_path)
