@@ -1,5 +1,6 @@
 import random
 import math
+import os
 from collections import deque, namedtuple
 
 import torch
@@ -109,15 +110,7 @@ class DQNAgent(BaseAgent):
         )
 
     def act(self, state):
-        """
-        Select action using epsilon-greedy policy.
-        
-        Args:
-            state: numpy array or tensor of shape (state_dim,)
-        
-        Returns:
-            action: integer action
-        """
+        """Select action using epsilon-greedy policy."""
         epsilon = self._calculate_epsilon()
         
         # Exploration
@@ -136,16 +129,7 @@ class DQNAgent(BaseAgent):
             return q_values.argmax(dim=1).item()
 
     def update(self, state, action, next_state, reward, done):
-        """
-        Store transition and perform learning update if enough samples.
-        
-        Args:
-            state: current state
-            action: action taken
-            next_state: next state
-            reward: reward received
-            done: whether episode terminated
-        """
+        """Store transition and perform learning update if enough samples."""
         # Convert to tensors
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.float32, device=self.device)
@@ -211,56 +195,52 @@ class DQNAgent(BaseAgent):
         loss.backward()
         self.optimizer.step()
 
+    def save(self, path: str):
+        """
+        Save the DQN agent checkpoint.
+        Saves Q-network, Target network, Optimizer, and Total Steps.
+        """
+        checkpoint = {
+            'q_net_state_dict': self.q_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'total_steps': self.total_steps,
+            'hyperparams': {
+                'state_dim': self.state_dim,
+                'n_actions': self.n_actions,
+                'gamma': self.gamma,
+                'eps_start': self.eps_start,
+                'eps_end': self.eps_end,
+                'eps_decay_steps': self.eps_decay_steps
+            }
+        }
+        torch.save(checkpoint, path)
+        print(f"Saved DQN agent to {path}")
+
+    def load(self, path: str):
+        """
+        Load the DQN agent checkpoint.
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No checkpoint found at {path}")
+
+        checkpoint = torch.load(path, map_location=self.device)
+        
+        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
+        self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.total_steps = checkpoint['total_steps']
+        
+        # Optional: verify hyperparameters match
+        saved_params = checkpoint.get('hyperparams', {})
+        if saved_params.get('n_actions') != self.n_actions:
+            print("Warning: Loaded agent has different number of actions than current configuration.")
+            
+        print(f"Loaded DQN agent from {path} (steps={self.total_steps})")
+
     def reset(self):
         """Reset agent (useful for multi-environment training)."""
-        # Note: This doesn't reset the network weights, just the step counter
-        # If you want to reset everything, create a new agent instance
         pass
     
     def __repr__(self):
         return f"DQNAgent(state_dim={self.state_dim}, n_actions={self.n_actions})"
-
-
-###############################################################################
-# Training function (optional - for backward compatibility)
-###############################################################################
-
-def train_dqn(env, agent, num_episodes=500):
-    """
-    Train DQN agent on environment.
-    
-    Args:
-        env: gym environment
-        agent: DQNAgent instance
-        num_episodes: number of episodes to train
-    
-    Returns:
-        episode_rewards: list of total rewards per episode
-    """
-    episode_rewards = []
-
-    for ep in range(num_episodes):
-        obs, _ = env.reset()
-        state = obs
-        
-        done = False
-        ep_reward = 0
-
-        while not done:
-            action = agent.act(state)
-            next_obs, reward, done, truncated, _ = env.step(action)
-            done = done or truncated
-            
-            agent.update(state, action, next_obs, reward, done)
-            
-            state = next_obs
-            ep_reward += reward
-
-        episode_rewards.append(ep_reward)
-        
-        if (ep + 1) % 50 == 0:
-            recent_rewards = episode_rewards[-50:]
-            avg_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0.0
-            print(f"Episode {ep + 1}/{num_episodes}, Avg Reward (last 50): {avg_reward:.2f}")
-
-    return episode_rewards
