@@ -86,8 +86,14 @@ def main():
     
     # Open the log file and redirect stdout and stderr
     log_file = open(log_file_path, "a", buffering=1)  # line-buffered
-    sys.stdout = log_file
-    sys.stderr = log_file
+    
+    # Flush Python buffers before redirecting
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # Force OS file descriptors 1 (stdout) and 2 (stderr) to write to our log file
+    os.dup2(log_file.fileno(), sys.stdout.fileno())
+    os.dup2(log_file.fileno(), sys.stderr.fileno())
 
     # Configure root logger to output to the redirected sys.stdout
     logging.basicConfig(
@@ -125,56 +131,71 @@ def main():
         logger.info(f"Loading agent weights from {args.load}...")
         agent.load(args.load)
 
+    # File paths for continuous tracking
+    latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
+    latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
+
     # Training Loop
     start_time = time.time()
     
-    for ep in range(1, args.episodes + 1):
-        logger.info("=" * 60)
-        logger.info(f"🚀 Starting Episode {ep}/{args.episodes}")
-        logger.info("=" * 60)
-        
-        # Ensure distinct but reproducible seed for each episode
-        ep_seed = base_seed + ep 
-        
-        # Run the episode
-        result = run_episode(
-            trace_path=args.trace,
-            namespace=args.namespace,
-            deploy=args.deploy,
-            target=args.target,
-            duration=args.duration,
-            steps=args.steps,
-            seed=ep_seed,
-            agent_name=args.agent,
-            reward_name=args.reward,
-            agent=agent
-        )
-        
-        if result["status"] != 0:
-            logger.error(f"Episode {ep} failed. Stopping training.")
-            break
+    try:
+        for ep in range(1, args.episodes + 1):
+            logger.info("=" * 60)
+            logger.info(f"🚀 Starting Episode {ep}/{args.episodes}")
+            logger.info("=" * 60)
             
-        # Checkpoint saving
-        if agent is not None and ep % args.checkpoint_interval == 0:
-            ckpt_path = checkpoint_folder / f"checkpoint_ep{ep}{file_ext}"
-            agent.save(str(ckpt_path))
-            logger.info(f"💾 Saved interval checkpoint: {ckpt_path}")
+            # Ensure distinct but reproducible seed for each episode
+            ep_seed = base_seed + ep 
+            
+            # Run the episode
+            result = run_episode(
+                trace_path=args.trace,
+                namespace=args.namespace,
+                deploy=args.deploy,
+                target=args.target,
+                duration=args.duration,
+                steps=args.steps,
+                seed=ep_seed,
+                agent_name=args.agent,
+                reward_name=args.reward,
+                agent=agent
+            )
+            
+            if result["status"] != 0:
+                logger.error(f"Episode {ep} failed. Stopping training.")
+                break
+                
+            if agent is not None:
+                agent.save(str(latest_ckpt_path))
+                
+                agent.visualize(save_path=str(latest_plot_path))
+                
+                if ep % args.checkpoint_interval == 0:
+                    ckpt_path = checkpoint_folder / f"checkpoint_ep{ep}{file_ext}"
+                    agent.save(str(ckpt_path))
+                    logger.info(f"💾 Saved interval checkpoint: {ckpt_path}")
 
-    # Final Checkpoints & Saves
-    if agent is not None:
-        final_ckpt_path = checkpoint_folder / f"checkpoint_final_ep{args.episodes}{file_ext}"
-        agent.save(str(final_ckpt_path))
-        logger.info(f"💾 Saved final training checkpoint: {final_ckpt_path}")
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Training interrupted by user (KeyboardInterrupt).")
+        logger.info("Saving current state before exiting...")
+    finally:
+        # Final Checkpoints & Saves (Runs whether training completes, fails, or is interrupted)
+        if agent is not None:
+            # Ensure the latest is up to date in case of interruption
+            agent.save(str(latest_ckpt_path))
+            agent.visualize(save_path=str(latest_plot_path))
+            logger.info(f"💾 Ensured latest training checkpoint: {latest_ckpt_path}")
+            
+            if args.save:
+                agent.save(args.save)
+                logger.info(f"💾 Saved explicit copy of final agent to: {args.save}")
+
+        total_time = time.time() - start_time
+        logger.info(f"🏁 Training process ended! Total time: {total_time / 60:.2f} minutes.")
         
-        if args.save:
-            agent.save(args.save)
-            logger.info(f"💾 Saved explicit copy of final agent to: {args.save}")
-
-    total_time = time.time() - start_time
-    logger.info(f"🏁 Training complete! Total time: {total_time / 60:.2f} minutes.")
-    
-    # Close the log file explicitly at the end
-    log_file.close()
+        # Close the log file explicitly at the end
+        log_file.close()
+        
     return 0
 
 if __name__ == "__main__":
