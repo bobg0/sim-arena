@@ -121,7 +121,7 @@ def main():
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
         file_ext = ".json"
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=4)
         file_ext = ".pt"
     else:
         logger.warning(f"Using policy-based agent '{args.agent}', checkpointing will be skipped.")

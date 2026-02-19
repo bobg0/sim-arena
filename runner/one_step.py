@@ -206,11 +206,14 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             # Fallback for raw bytes or unknown units
             mem_mi = int("".join(filter(str.isdigit, mem_raw)) or 0)
 
+        distance = target - obs.get("total", 0)
+
         dqn_state = [
             cpu_m,
             mem_mi,
             resources["replicas"],
             obs.get("pending", 0),
+            distance,
         ]
         
         # 5) Policy/agent decision
@@ -319,7 +322,7 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=4)
 
     result = one_step(
         trace_path=args.trace,
