@@ -63,5 +63,26 @@ class EpsilonGreedyAgent(BaseAgent):
         self.counts = [0 for _ in range(self.n_actions)]
         self.values = [0.0 for _ in range(self.n_actions)]
     
+    def visualize(self, save_path=None):
+        """Visualize the learned Q-values as a bar chart."""
+        import matplotlib.pyplot as plt
+        
+        plt.figure(figsize=(8, 5))
+        actions = list(range(self.n_actions))
+        plt.bar(actions, self.values, color='skyblue', edgecolor='black')
+        
+        plt.xlabel('Action Index')
+        plt.ylabel('Estimated Q-Value')
+        plt.title(f'Epsilon-Greedy Q-Values (epsilon={self.epsilon:.2f})')
+        plt.xticks(actions)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Saved visualization to {save_path}")
+        else:
+            plt.show()
+        plt.close()
+    
     def __repr__(self):
         return f"EpsilonGreedyAgent(n_actions={self.n_actions}, epsilon={self.epsilon})"

@@ -242,5 +242,55 @@ class DQNAgent(BaseAgent):
         """Reset agent (useful for multi-environment training)."""
         pass
     
+    def visualize(self, save_path=None):
+        """Visualize the DQN Q-values for a sweep of representative states."""
+        import matplotlib.pyplot as plt
+        import torch
+        import numpy as np
+
+        # Baseline features: CPU=500m, Mem=512Mi, Pending=0
+        baseline_cpu = 500
+        baseline_mem = 512
+        pending = 0
+        
+        # Sweep replicas from 1 to 5 to see how the network reacts
+        replicas_sweep = list(range(1, 6))
+        states = []
+        for r in replicas_sweep:
+            states.append([baseline_cpu, baseline_mem, r, pending])
+            
+        states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
+        
+        with torch.no_grad():
+            q_values = self.q_net(states_tensor).cpu().numpy()
+            
+        fig, ax = plt.subplots(figsize=(8, 6))
+        cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
+        fig.colorbar(cax, label='Estimated Q-Value')
+        
+        # Label axes
+        ax.set_xticks(range(self.n_actions))
+        ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
+        ax.set_yticks(range(len(replicas_sweep)))
+        ax.set_yticklabels([f"Rep={r}" for r in replicas_sweep])
+        
+        # Annotate text on the heatmap for exact values
+        for i in range(len(replicas_sweep)):
+            for j in range(self.n_actions):
+                # Choose text color based on background intensity for readability
+                color = "black" if q_values[i, j] > (np.max(q_values) + np.min(q_values)) / 2 else "white"
+                ax.text(j, i, f"{q_values[i, j]:.2f}", ha="center", va="center", color=color)
+                
+        plt.xlabel('Actions')
+        plt.ylabel('State (Varying Replicas)')
+        plt.title('DQN Q-Value Heatmap (Fixed CPU/Mem/Pending)')
+        
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Saved DQN visualization to {save_path}")
+        else:
+            plt.show()
+        plt.close()
+        
     def __repr__(self):
         return f"DQNAgent(state_dim={self.state_dim}, n_actions={self.n_actions})"
