@@ -61,14 +61,14 @@ class DQNAgent(BaseAgent):
         self,
         state_dim,
         n_actions,
-        learning_rate=0.001,
+        learning_rate=0.002,
         gamma=0.99,
         eps_start=1.0,
         eps_end=0.1,
-        eps_decay_steps=1000,
-        replay_buffer_size=10000,
+        eps_decay_steps=100,
+        replay_buffer_size=2000,
         batch_size=32,
-        target_update_freq=500,
+        target_update_freq=50,
         device=None
     ):
         self.state_dim = state_dim
