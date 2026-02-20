@@ -4,7 +4,10 @@ from .trace_io import json_to_msgpack, load_trace, save_trace  # noqa: F401
 from .ops import (  # noqa: F401
     bump_cpu_small,
     bump_mem_small,
+    reduce_cpu_small,
+    reduce_mem_small,
     scale_up_replicas,
+    scale_down_replicas,
 )
 
 __all__ = [
@@ -13,6 +16,9 @@ __all__ = [
     "json_to_msgpack",
     "bump_cpu_small",
     "bump_mem_small",
+    "reduce_cpu_small",
+    "reduce_mem_small",
     "scale_up_replicas",
+    "scale_down_replicas",
 ]
 

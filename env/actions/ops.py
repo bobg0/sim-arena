@@ -172,6 +172,65 @@ def bump_mem_small(obj: MutableMapping[str, Any], deploy: str, step: str = "256M
     return changed
 
 
+def reduce_cpu_small(obj: MutableMapping[str, Any], deploy: str, step: str = "500m", floor_m: int = 50) -> bool:
+    """Decrease CPU requests for the first container by *step*, with a floor of *floor_m* millicores.
+
+    Returns True when at least one Deployment is updated.
+    """
+    try:
+        step_value, step_unit = _parse_cpu(step)
+    except ValueError as exc:
+        raise ValueError(f"Invalid CPU step '{step}': {exc}") from exc
+
+    changed = False
+    for deployment in _iter_deployments(obj, deploy):
+        container = _first_container(deployment)
+        if container is None:
+            continue
+
+        requests = _ensure_requests(container)
+        current_raw = requests.get("cpu")
+        current_value, current_unit = _parse_cpu(current_raw)
+        new_value = max(floor_m, current_value - step_value)
+        if new_value == current_value:
+            continue
+        preferred_unit = current_unit if current_raw not in (None, "") else step_unit
+        requests["cpu"] = _format_cpu(new_value, preferred_unit)
+        changed = True
+
+    return changed
+
+
+def reduce_mem_small(obj: MutableMapping[str, Any], deploy: str, step: str = "256Mi", floor_mi: int = 64) -> bool:
+    """Decrease memory requests for the first container by *step*, with a floor of *floor_mi* MiB.
+
+    Returns True when at least one Deployment is updated.
+    """
+    try:
+        step_value, step_unit = _parse_mem(step)
+    except ValueError as exc:
+        raise ValueError(f"Invalid memory step '{step}': {exc}") from exc
+
+    floor_bytes = floor_mi * 1024 * 1024
+    changed = False
+    for deployment in _iter_deployments(obj, deploy):
+        container = _first_container(deployment)
+        if container is None:
+            continue
+
+        requests = _ensure_requests(container)
+        current_raw = requests.get("memory")
+        current_value, current_unit = _parse_mem(current_raw)
+        new_value = max(floor_bytes, current_value - step_value)
+        if new_value == current_value:
+            continue
+        preferred_unit = current_unit if current_raw not in (None, "") else step_unit
+        requests["memory"] = _format_mem(new_value, preferred_unit)
+        changed = True
+
+    return changed
+
+
 def scale_up_replicas(obj: MutableMapping[str, Any], deploy: str, delta: int = 1) -> bool:
     """Increase the replica count for *deploy* by *delta*."""
 
@@ -189,6 +248,31 @@ def scale_up_replicas(obj: MutableMapping[str, Any], deploy: str, delta: int = 1
         except (TypeError, ValueError):
             replicas_int = 0
         spec["replicas"] = replicas_int + delta
+        changed = True
+
+    return changed
+
+
+def scale_down_replicas(obj: MutableMapping[str, Any], deploy: str, delta: int = 1, floor: int = 1) -> bool:
+    """Decrease the replica count for *deploy* by *delta*, with a floor of *floor*."""
+
+    if delta <= 0:
+        raise ValueError("delta must be positive")
+
+    changed = False
+    for deployment in _iter_deployments(obj, deploy):
+        spec = deployment.get("spec")
+        if not isinstance(spec, MutableMapping):
+            continue
+        replicas = spec.get("replicas", 0)
+        try:
+            replicas_int = int(replicas)
+        except (TypeError, ValueError):
+            replicas_int = 0
+        new_replicas = max(floor, replicas_int - delta)
+        if new_replicas == replicas_int:
+            continue
+        spec["replicas"] = new_replicas
         changed = True
 
     return changed

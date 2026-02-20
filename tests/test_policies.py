@@ -67,7 +67,15 @@ def test_policy_scale_replicas():
 def test_policy_random_returns_valid_action():
     """Test random policy returns one of the valid action types."""
     policy = get_policy("random")
-    valid_types = {"noop", "bump_cpu_small", "bump_mem_small", "scale_up_replicas"}
+    valid_types = {
+        "noop",
+        "bump_cpu_small",
+        "bump_mem_small",
+        "scale_up_replicas",
+        "reduce_cpu_small",
+        "reduce_mem_small",
+        "scale_down_replicas",
+    }
     for _ in range(20):
         action = policy(obs={"ready": 2, "pending": 1, "total": 3}, deploy="web")
         assert action["type"] in valid_types
