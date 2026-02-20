@@ -98,8 +98,10 @@ class DQNAgent(BaseAgent):
         # Replay memory
         self.memory = ReplayMemory(replay_buffer_size)
 
-        # Step counter
+        # Metrics tracking
         self.total_steps = 0
+        self.reward_history = []
+        self.loss_history = []
 
     def _calculate_epsilon(self):
         """Calculate current epsilon value based on decay schedule."""
@@ -130,6 +132,8 @@ class DQNAgent(BaseAgent):
 
     def update(self, state, action, next_state, reward, done):
         """Store transition and perform learning update if enough samples."""
+        self.reward_history.append(float(reward))
+
         # Convert to tensors
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.float32, device=self.device)
@@ -190,6 +194,7 @@ class DQNAgent(BaseAgent):
 
         # Compute loss and update
         loss = nn.MSELoss()(q_values, target)
+        self.loss_history.append(float(loss.item()))
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -205,6 +210,8 @@ class DQNAgent(BaseAgent):
             'target_net_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'total_steps': self.total_steps,
+            'reward_history': self.reward_history,
+            'loss_history': self.loss_history,
             'hyperparams': {
                 'state_dim': self.state_dim,
                 'n_actions': self.n_actions,
@@ -230,6 +237,8 @@ class DQNAgent(BaseAgent):
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.total_steps = checkpoint['total_steps']
+        self.reward_history = checkpoint.get('reward_history', [])
+        self.loss_history = checkpoint.get('loss_history', [])
         
         # Optional: verify hyperparameters match
         saved_params = checkpoint.get('hyperparams', {})
@@ -240,7 +249,8 @@ class DQNAgent(BaseAgent):
 
     def reset(self):
         """Reset agent (useful for multi-environment training)."""
-        pass
+        self.reward_history = []
+        self.loss_history = []
     
     def visualize(self, save_path=None):
         """Visualize the DQN Q-values for a sweep of representative states across 4 subplots."""
@@ -282,7 +292,6 @@ class DQNAgent(BaseAgent):
             q_min = torch.min(q_values)
             q_max = torch.max(q_values)
             
-            # Handle edge case where all Q-values are identical to avoid divide-by-zero errors in coloring
             if q_max == q_min:
                 threshold = q_max
             else:
@@ -314,6 +323,49 @@ class DQNAgent(BaseAgent):
         if save_path:
             plt.savefig(save_path)
             print(f"Saved DQN visualization to {save_path}")
+        else:
+            plt.show()
+        plt.close()
+
+    def plot_learning_curve(self, save_path=None):
+        """Plot the moving average of rewards and loss over time."""
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+        
+        # Plot Rewards
+        ax = axes[0]
+        if len(self.reward_history) > 0:
+            window = min(100, len(self.reward_history))
+            rolling_rewards = np.convolve(self.reward_history, np.ones(window)/window, mode='valid')
+            ax.plot(self.reward_history, alpha=0.3, color='blue', label='Raw Step Reward')
+            ax.plot(np.arange(window-1, len(self.reward_history)), rolling_rewards, color='darkblue', label=f'{window}-Step Moving Avg')
+            ax.set_title('Reward Learning Curve')
+            ax.set_xlabel('Steps')
+            ax.set_ylabel('Reward')
+            ax.legend()
+        else:
+            ax.set_title('Reward Learning Curve (No Data)')
+        
+        # Plot Loss
+        ax = axes[1]
+        if len(self.loss_history) > 0:
+            window = min(100, len(self.loss_history))
+            rolling_loss = np.convolve(self.loss_history, np.ones(window)/window, mode='valid')
+            ax.plot(self.loss_history, alpha=0.3, color='red', label='Raw Step Loss')
+            ax.plot(np.arange(window-1, len(self.loss_history)), rolling_loss, color='darkred', label=f'{window}-Step Moving Avg')
+            ax.set_title('DQN Loss Curve')
+            ax.set_xlabel('Training Steps')
+            ax.set_ylabel('Loss (MSE)')
+            ax.legend()
+        else:
+            ax.set_title('DQN Loss Curve (No Data)')
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Saved learning curve to {save_path}")
         else:
             plt.show()
         plt.close()

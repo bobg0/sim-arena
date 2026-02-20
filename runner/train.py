@@ -134,6 +134,7 @@ def main():
     # File paths for continuous tracking
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
+    latest_curve_path = checkpoint_folder / "learning_curve_latest.png"
 
     # Training Loop
     start_time = time.time()
@@ -169,6 +170,7 @@ def main():
                 agent.save(str(latest_ckpt_path))
                 
                 agent.visualize(save_path=str(latest_plot_path))
+                agent.plot_learning_curve(save_path=str(latest_curve_path))
                 
                 if ep % args.checkpoint_interval == 0:
                     ckpt_path = checkpoint_folder / f"checkpoint_ep{ep}{file_ext}"
@@ -184,6 +186,8 @@ def main():
             # Ensure the latest is up to date in case of interruption
             agent.save(str(latest_ckpt_path))
             agent.visualize(save_path=str(latest_plot_path))
+            agent.plot_learning_curve(save_path=str(latest_curve_path))
+                
             logger.info(f"💾 Ensured latest training checkpoint: {latest_ckpt_path}")
             
             if args.save:
