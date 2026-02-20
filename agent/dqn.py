@@ -61,11 +61,11 @@ class DQNAgent(BaseAgent):
         self,
         state_dim,
         n_actions,
-        learning_rate=0.002,
-        gamma=0.99,
+        learning_rate=0.001,
+        gamma=0.97,
         eps_start=1.0,
         eps_end=0.1,
-        eps_decay_steps=100,
+        eps_decay_steps=500,
         replay_buffer_size=2000,
         batch_size=32,
         target_update_freq=50,
@@ -243,50 +243,73 @@ class DQNAgent(BaseAgent):
         pass
     
     def visualize(self, save_path=None):
-        """Visualize the DQN Q-values for a sweep of representative states."""
+        """Visualize the DQN Q-values for a sweep of representative states across 4 subplots."""
         import matplotlib.pyplot as plt
 
-        # Baseline features: CPU=500m, Mem=512Mi, Replica=1, Pending=0
-        baseline_cpu = 500
-        baseline_mem = 512
-        replicas = 1
+        # Define configurations for the 4 subplots (Low/High CPU and Low/High Mem)
+        configs = [
+            {"title": "Low CPU / Low Mem", "cpu": 500, "mem": 512},
+            {"title": "High CPU / Low Mem", "cpu": 2000, "mem": 512},
+            {"title": "Low CPU / High Mem", "cpu": 500, "mem": 2048},
+            {"title": "High CPU / High Mem", "cpu": 2000, "mem": 2048}
+        ]
+
+        # Constants for the sweep
+        replicas = 2
         pending = 0
+        distance_sweep = list(range(5))  # Sweeps distances 0 through 4
         
-        # Sweep replicas from 1 to 5 to see how the network reacts
-        distance_sweep = list(range(1, 6))
-        states = []
-        for d in distance_sweep:
-            states.append([baseline_cpu, baseline_mem, replicas, pending, d])
+        # Set up a 2x2 grid of subplots
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Replica: 2, Pending: 0)', fontsize=16)
+        
+        # Flatten axes array for easy iteration
+        axes = axes.flatten()
+
+        for idx, config in enumerate(configs):
+            ax = axes[idx]
+            states = []
             
-        states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
-        
-        with torch.no_grad():
-            q_values = self.q_net(states_tensor).cpu()  # keep as torch tensor
-
-        q_min = torch.min(q_values)
-        q_max = torch.max(q_values)
-        threshold = (q_max + q_min) / 2
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
-        fig.colorbar(cax, label='Estimated Q-Value')
-        
-        # Label axes
-        ax.set_xticks(range(self.n_actions))
-        ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
-        ax.set_yticks(range(len(distance_sweep)))
-        ax.set_yticklabels([f"Distance={r}" for r in distance_sweep])
-        
-        # Annotate text on the heatmap for exact values
-        for i in range(len(distance_sweep)):
-            for j in range(self.n_actions):
-                val = q_values[i, j]
-                color = "black" if val > threshold else "white"
-                ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
+            # Build state tensors for this specific subplot's CPU/Mem config
+            for d in distance_sweep:
+                states.append([config["cpu"], config["mem"], replicas, pending, d])
                 
-        plt.xlabel('Actions')
-        plt.ylabel('State (Varying Distance)')
-        plt.title('DQN Q-Value Heatmap (CPU:500 / Mem:512 / Replica: 1 / Pending:0)')
+            states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
+            
+            with torch.no_grad():
+                q_values = self.q_net(states_tensor).cpu()
+
+            q_min = torch.min(q_values)
+            q_max = torch.max(q_values)
+            
+            # Handle edge case where all Q-values are identical to avoid divide-by-zero errors in coloring
+            if q_max == q_min:
+                threshold = q_max
+            else:
+                threshold = (q_max + q_min) / 2
+
+            cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
+            fig.colorbar(cax, ax=ax, label='Estimated Q-Value')
+            
+            # Label axes
+            ax.set_xticks(range(self.n_actions))
+            ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
+            ax.set_yticks(range(len(distance_sweep)))
+            ax.set_yticklabels([f"Dist={r}" for r in distance_sweep])
+            
+            # Annotate text on the heatmap for exact values
+            for i in range(len(distance_sweep)):
+                for j in range(self.n_actions):
+                    val = q_values[i, j]
+                    color = "black" if val > threshold else "white"
+                    ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
+                    
+            ax.set_xlabel('Actions')
+            ax.set_ylabel('Distance')
+            ax.set_title(f"{config['title']}\n(CPU: {config['cpu']}m / Mem: {config['mem']}Mi)")
+
+        # Adjust layout so the suptitle and subplots don't overlap
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         
         if save_path:
             plt.savefig(save_path)
