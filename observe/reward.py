@@ -84,6 +84,40 @@ def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict) -> fl
     final_reward = max(-1.0, min(1.0, reward))
     return final_reward
 
+def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+
+    ready = obs.get("ready", 0)
+    pending = obs.get("pending", 0)
+    total = obs.get("total", 0)
+    
+    # Perfect: exactly at target with no pending pods
+    if ready == target_total and pending == 0 and total == target_total:
+        return 1.0
+    
+    # Calculate penalties
+    reward = 0.0
+
+    # 2. Pending pods penalty (inefficiency - pods not ready yet)
+    if pending > 0:
+        pending_penalty = -0.02 * pending
+        reward += pending_penalty
+    
+    # 3. Resource waste penalty (too many replicas)
+    if total > target_total:
+        overshoot = total - target_total
+        waste_penalty = -0.07 * overshoot  # Stronger penalty for wasting resources
+        reward += waste_penalty
+    
+    # 4. Under-provisioned penalty (not enough replicas)
+    elif total < target_total:
+        undershoot = target_total - total
+        undershoot_penalty = -0.03 * undershoot
+        reward += undershoot_penalty
+    
+    # Clamp reward between -1.0 and 1.0
+    final_reward = max(-1.0, min(1.0, reward))
+    return final_reward
+
 def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
     """
     Penalize exceeding max resource limits.
@@ -110,6 +144,7 @@ REWARD_REGISTRY: Dict[str, Callable] = {
     "base": reward_base,
     "shaped": reward_shaped,
     "max_punish": reward_max_punish,
+    "rui": reward_rui,
 }
 
 def get_reward(name: str):
