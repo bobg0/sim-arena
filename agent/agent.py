@@ -93,6 +93,13 @@ class Agent:
         else:
             print(f"Agent {self.agent_type} does not support visualization.")
     
+    def plot_learning_curve(self, save_path: Optional[str] = None):
+        """ Plot the learning curve (reward history) of the agent. """
+        if hasattr(self._agent, 'plot_learning_curve'):
+            self._agent.plot_learning_curve(save_path)
+        else:
+            print(f"Agent {self.agent_type} does not support learning curves.")
+    
     @property
     def n_actions(self) -> int:
         return self._agent.n_actions
