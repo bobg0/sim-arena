@@ -13,6 +13,11 @@ MAX_CPU_MILLICORES = 16000  # 16 CPUs
 MAX_MEMORY_BYTES = 34359738368  # 32 GB
 MAX_REPLICAS = 100
 
+# Minimum floors for reduce actions
+MIN_CPU_MILLICORES = 50  # 50m
+MIN_MEMORY_BYTES = 64 * 1024 * 1024  # 64 MiB
+MIN_REPLICAS = 1
+
 # CPU conversion helpers
 def parse_cpu_to_millicores(cpu_str: str) -> int:
     """Convert CPU string (e.g., '500m', '2', '1.5') to millicores."""
@@ -45,7 +50,7 @@ def parse_memory_to_bytes(mem_str: str) -> int:
 
 def validate_cpu_action(current_cpu: str, step: str, action_type: str) -> Tuple[bool, Optional[str]]:
     """
-    Validate that a CPU action won't exceed limits.
+    Validate that a CPU action won't exceed limits or go below floor.
     
     Returns: (is_valid, error_message)
     """
@@ -55,11 +60,14 @@ def validate_cpu_action(current_cpu: str, step: str, action_type: str) -> Tuple[
         
         if action_type == "bump_cpu_small":
             new_millicores = current_millicores + step_millicores
+            if new_millicores > MAX_CPU_MILLICORES:
+                return False, f"CPU would exceed limit: {new_millicores}m > {MAX_CPU_MILLICORES}m (16 CPUs)"
+        elif action_type == "reduce_cpu_small":
+            new_millicores = current_millicores - step_millicores
+            if new_millicores < MIN_CPU_MILLICORES:
+                return False, f"CPU would go below floor: {new_millicores}m < {MIN_CPU_MILLICORES}m"
         else:
             new_millicores = current_millicores
-        
-        if new_millicores > MAX_CPU_MILLICORES:
-            return False, f"CPU would exceed limit: {new_millicores}m > {MAX_CPU_MILLICORES}m (16 CPUs)"
         
         return True, None
     except Exception as e:
@@ -67,7 +75,7 @@ def validate_cpu_action(current_cpu: str, step: str, action_type: str) -> Tuple[
 
 def validate_memory_action(current_memory: str, step: str, action_type: str) -> Tuple[bool, Optional[str]]:
     """
-    Validate that a memory action won't exceed limits.
+    Validate that a memory action won't exceed limits or go below floor.
     
     Returns: (is_valid, error_message)
     """
@@ -77,11 +85,14 @@ def validate_memory_action(current_memory: str, step: str, action_type: str) -> 
         
         if action_type == "bump_mem_small":
             new_bytes = current_bytes + step_bytes
+            if new_bytes > MAX_MEMORY_BYTES:
+                return False, f"Memory would exceed limit: {new_bytes} bytes > {MAX_MEMORY_BYTES} bytes (32Gi)"
+        elif action_type == "reduce_mem_small":
+            new_bytes = current_bytes - step_bytes
+            if new_bytes < MIN_MEMORY_BYTES:
+                return False, f"Memory would go below floor: {new_bytes} bytes < {MIN_MEMORY_BYTES} bytes (64Mi)"
         else:
             new_bytes = current_bytes
-        
-        if new_bytes > MAX_MEMORY_BYTES:
-            return False, f"Memory would exceed limit: {new_bytes} bytes > {MAX_MEMORY_BYTES} bytes (32Gi)"
         
         return True, None
     except Exception as e:
@@ -89,17 +100,20 @@ def validate_memory_action(current_memory: str, step: str, action_type: str) -> 
 
 def validate_replicas_action(current_replicas: int, delta: int, action_type: str) -> Tuple[bool, Optional[str]]:
     """
-    Validate that a replica action won't exceed limits.
+    Validate that a replica action won't exceed limits or go below floor.
     
     Returns: (is_valid, error_message)
     """
     if action_type == "scale_up_replicas":
         new_replicas = current_replicas + delta
+        if new_replicas > MAX_REPLICAS:
+            return False, f"Replicas would exceed limit: {new_replicas} > {MAX_REPLICAS}"
+    elif action_type == "scale_down_replicas":
+        new_replicas = current_replicas - delta
+        if new_replicas < MIN_REPLICAS:
+            return False, f"Replicas would go below floor: {new_replicas} < {MIN_REPLICAS}"
     else:
         new_replicas = current_replicas
-    
-    if new_replicas > MAX_REPLICAS:
-        return False, f"Replicas would exceed limit: {new_replicas} > {MAX_REPLICAS}"
     
     return True, None
 
@@ -132,6 +146,21 @@ def validate_action(action: dict, current_state: Optional[dict] = None) -> Tuple
         return validate_memory_action(current_memory, step, action_type)
     
     elif action_type == "scale_up_replicas":
+        current_replicas = current_state.get("replicas", 0) if current_state else 0
+        delta = action.get("delta", 1)
+        return validate_replicas_action(current_replicas, delta, action_type)
+    
+    elif action_type == "reduce_cpu_small":
+        current_cpu = current_state.get("cpu", "0m") if current_state else "0m"
+        step = action.get("step", "500m")
+        return validate_cpu_action(current_cpu, step, action_type)
+    
+    elif action_type == "reduce_mem_small":
+        current_memory = current_state.get("memory", "0Mi") if current_state else "0Mi"
+        step = action.get("step", "256Mi")
+        return validate_memory_action(current_memory, step, action_type)
+    
+    elif action_type == "scale_down_replicas":
         current_replicas = current_state.get("replicas", 0) if current_state else 0
         delta = action.get("delta", 1)
         return validate_replicas_action(current_replicas, delta, action_type)

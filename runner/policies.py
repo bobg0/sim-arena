@@ -24,12 +24,14 @@ def policy_heuristic(obs: dict, deploy: str):
 
 def policy_random(obs: dict, deploy: str):
     """Randomly selects from all available actions."""
-    # Available action types (excluding noop for more interesting behavior)
     actions = [
-        {"type": "bump_cpu_small", "deploy": deploy},
-        {"type": "bump_mem_small", "deploy": deploy},
+        {"type": "noop"},
+        {"type": "bump_cpu_small", "deploy": deploy, "step": "500m"},
+        {"type": "bump_mem_small", "deploy": deploy, "step": "256Mi"},
         {"type": "scale_up_replicas", "deploy": deploy, "delta": 1},
-        {"type": "noop"},  # Include noop as an option
+        {"type": "reduce_cpu_small", "deploy": deploy, "step": "500m"},
+        {"type": "reduce_mem_small", "deploy": deploy, "step": "256Mi"},
+        {"type": "scale_down_replicas", "deploy": deploy, "delta": 1},
     ]
     return random.choice(actions)
 

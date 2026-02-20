@@ -84,6 +84,47 @@ def test_replica_validation():
     print("  ✓ Unsafe replica scale blocked: PASS")
     print(f"    Error: {error}")
 
+def test_reduce_validation():
+    """Test reduce action floor enforcement"""
+    print("\nTesting reduce actions...")
+
+    # reduce_cpu: 100m - 500m would go below 50m floor
+    action = {"type": "reduce_cpu_small", "step": "500m"}
+    current_state = {"cpu": "100m", "memory": "1Gi", "replicas": 1}
+    is_valid, error = validate_action(action, current_state)
+    assert is_valid == False, "Should block reduce_cpu that goes below floor"
+    assert "floor" in error.lower(), "Error should mention floor"
+    print("  ✓ reduce_cpu below floor blocked: PASS")
+
+    # reduce_cpu: 1000m - 500m = 500m, OK
+    action = {"type": "reduce_cpu_small", "step": "500m"}
+    current_state = {"cpu": "1000m", "memory": "1Gi", "replicas": 1}
+    is_valid, error = validate_action(action, current_state)
+    assert is_valid == True, "Should allow reduce_cpu above floor"
+    print("  ✓ reduce_cpu above floor allowed: PASS")
+
+    # reduce_mem: 128Mi - 256Mi would go below 64Mi floor
+    action = {"type": "reduce_mem_small", "step": "256Mi"}
+    current_state = {"cpu": "1", "memory": "128Mi", "replicas": 1}
+    is_valid, error = validate_action(action, current_state)
+    assert is_valid == False, "Should block reduce_mem that goes below floor"
+    print("  ✓ reduce_mem below floor blocked: PASS")
+
+    # scale_down: 1 - 1 = 0, below MIN_REPLICAS=1
+    action = {"type": "scale_down_replicas", "delta": 1}
+    current_state = {"cpu": "1", "memory": "1Gi", "replicas": 1}
+    is_valid, error = validate_action(action, current_state)
+    assert is_valid == False, "Should block scale_down that goes below 1"
+    print("  ✓ scale_down below floor blocked: PASS")
+
+    # scale_down: 3 - 1 = 2, OK
+    action = {"type": "scale_down_replicas", "delta": 1}
+    current_state = {"cpu": "1", "memory": "1Gi", "replicas": 3}
+    is_valid, error = validate_action(action, current_state)
+    assert is_valid == True, "Should allow scale_down when result >= 1"
+    print("  ✓ scale_down above floor allowed: PASS")
+
+
 def test_noop_always_valid():
     """Test that noop is always valid"""
     print("\nTesting noop action...")
@@ -123,6 +164,7 @@ def main():
         test_cpu_validation()
         test_memory_validation()
         test_replica_validation()
+        test_reduce_validation()
         test_noop_always_valid()
         test_parsing_functions()
         

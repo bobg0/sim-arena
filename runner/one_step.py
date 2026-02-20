@@ -36,7 +36,14 @@ from env import create_simulation, wait_fixed, delete_simulation
 from observe.reader import observe, current_requests
 from observe.reward import get_reward
 from env.actions.trace_io import load_trace, save_trace
-from env.actions.ops import bump_cpu_small, bump_mem_small, scale_up_replicas
+from env.actions.ops import (
+    bump_cpu_small,
+    bump_mem_small,
+    reduce_cpu_small,
+    reduce_mem_small,
+    scale_up_replicas,
+    scale_down_replicas,
+)
 from runner.safeguards import validate_action
 from runner.policies import get_policy
 
@@ -90,8 +97,17 @@ def apply_action(trace_path: str, action: dict, deploy: str, output_path: str) -
     elif action_type == "bump_mem_small":
         changed = bump_mem_small(trace, deploy, step=action.get("step", "256Mi"))
         save_trace(trace, output_path)
+    elif action_type == "reduce_cpu_small":
+        changed = reduce_cpu_small(trace, deploy, step=action.get("step", "500m"))
+        save_trace(trace, output_path)
+    elif action_type == "reduce_mem_small":
+        changed = reduce_mem_small(trace, deploy, step=action.get("step", "256Mi"))
+        save_trace(trace, output_path)
     elif action_type == "scale_up_replicas":
         changed = scale_up_replicas(trace, deploy, delta=action.get("delta", 1))
+        save_trace(trace, output_path)
+    elif action_type == "scale_down_replicas":
+        changed = scale_down_replicas(trace, deploy, delta=action.get("delta", 1))
         save_trace(trace, output_path)
     else:
         raise ValueError(f"Unknown action type: {action_type}")
@@ -181,6 +197,9 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             1: {"type": "bump_cpu_small", "step": "500m"},
             2: {"type": "bump_mem_small", "step": "256Mi"},
             3: {"type": "scale_up_replicas", "delta": 1},
+            4: {"type": "reduce_cpu_small", "step": "500m"},
+            5: {"type": "reduce_mem_small", "step": "256Mi"},
+            6: {"type": "scale_down_replicas", "delta": 1},
         }
 
         action_idx = None
@@ -276,9 +295,9 @@ def main():
 
     agent = None
     if args.agent == "greedy":
-        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=4, epsilon=0.1)
+        agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=4)
+        agent = Agent(AgentType.DQN, state_dim=4, n_actions=7)
 
     result = one_step(
         trace_path=args.trace,
