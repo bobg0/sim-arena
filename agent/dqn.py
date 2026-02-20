@@ -1,5 +1,6 @@
 import random
 import math
+import os
 from collections import deque, namedtuple
 
 import torch
@@ -61,13 +62,13 @@ class DQNAgent(BaseAgent):
         state_dim,
         n_actions,
         learning_rate=0.001,
-        gamma=0.99,
+        gamma=0.97,
         eps_start=1.0,
         eps_end=0.1,
-        eps_decay_steps=1000,
-        replay_buffer_size=10000,
+        eps_decay_steps=500,
+        replay_buffer_size=2000,
         batch_size=32,
-        target_update_freq=500,
+        target_update_freq=50,
         device=None
     ):
         self.state_dim = state_dim
@@ -97,8 +98,10 @@ class DQNAgent(BaseAgent):
         # Replay memory
         self.memory = ReplayMemory(replay_buffer_size)
 
-        # Step counter
+        # Metrics tracking
         self.total_steps = 0
+        self.reward_history = []
+        self.loss_history = []
 
     def _calculate_epsilon(self):
         """Calculate current epsilon value based on decay schedule."""
@@ -109,15 +112,7 @@ class DQNAgent(BaseAgent):
         )
 
     def act(self, state):
-        """
-        Select action using epsilon-greedy policy.
-        
-        Args:
-            state: numpy array or tensor of shape (state_dim,)
-        
-        Returns:
-            action: integer action
-        """
+        """Select action using epsilon-greedy policy."""
         epsilon = self._calculate_epsilon()
         
         # Exploration
@@ -136,16 +131,9 @@ class DQNAgent(BaseAgent):
             return q_values.argmax(dim=1).item()
 
     def update(self, state, action, next_state, reward, done):
-        """
-        Store transition and perform learning update if enough samples.
-        
-        Args:
-            state: current state
-            action: action taken
-            next_state: next state
-            reward: reward received
-            done: whether episode terminated
-        """
+        """Store transition and perform learning update if enough samples."""
+        self.reward_history.append(float(reward))
+
         # Convert to tensors
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.float32, device=self.device)
@@ -206,61 +194,181 @@ class DQNAgent(BaseAgent):
 
         # Compute loss and update
         loss = nn.MSELoss()(q_values, target)
+        self.loss_history.append(float(loss.item()))
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
+    def save(self, path: str):
+        """
+        Save the DQN agent checkpoint.
+        Saves Q-network, Target network, Optimizer, and Total Steps.
+        """
+        checkpoint = {
+            'q_net_state_dict': self.q_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'total_steps': self.total_steps,
+            'reward_history': self.reward_history,
+            'loss_history': self.loss_history,
+            'hyperparams': {
+                'state_dim': self.state_dim,
+                'n_actions': self.n_actions,
+                'gamma': self.gamma,
+                'eps_start': self.eps_start,
+                'eps_end': self.eps_end,
+                'eps_decay_steps': self.eps_decay_steps
+            }
+        }
+        torch.save(checkpoint, path)
+        print(f"Saved DQN agent to {path}")
+
+    def load(self, path: str):
+        """
+        Load the DQN agent checkpoint.
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No checkpoint found at {path}")
+
+        checkpoint = torch.load(path, map_location=self.device)
+        
+        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
+        self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.total_steps = checkpoint['total_steps']
+        self.reward_history = checkpoint.get('reward_history', [])
+        self.loss_history = checkpoint.get('loss_history', [])
+        
+        # Optional: verify hyperparameters match
+        saved_params = checkpoint.get('hyperparams', {})
+        if saved_params.get('n_actions') != self.n_actions:
+            print("Warning: Loaded agent has different number of actions than current configuration.")
+            
+        print(f"Loaded DQN agent from {path} (steps={self.total_steps})")
+
     def reset(self):
         """Reset agent (useful for multi-environment training)."""
-        # Note: This doesn't reset the network weights, just the step counter
-        # If you want to reset everything, create a new agent instance
-        pass
+        self.reward_history = []
+        self.loss_history = []
     
+    def visualize(self, save_path=None):
+        """Visualize the DQN Q-values for a sweep of representative states across 4 subplots."""
+        import matplotlib.pyplot as plt
+
+        # Define configurations for the 4 subplots (Low/High CPU and Low/High Mem)
+        configs = [
+            {"title": "Low CPU / Low Mem", "cpu": 500, "mem": 512},
+            {"title": "High CPU / Low Mem", "cpu": 2000, "mem": 512},
+            {"title": "Low CPU / High Mem", "cpu": 500, "mem": 2048},
+            {"title": "High CPU / High Mem", "cpu": 2000, "mem": 2048}
+        ]
+
+        # Constants for the sweep
+        replicas = 2
+        pending = 0
+        distance_sweep = list(range(5))  # Sweeps distances 0 through 4
+        
+        # Set up a 2x2 grid of subplots
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Replica: 2, Pending: 0)', fontsize=16)
+        
+        # Flatten axes array for easy iteration
+        axes = axes.flatten()
+
+        for idx, config in enumerate(configs):
+            ax = axes[idx]
+            states = []
+            
+            # Build state tensors for this specific subplot's CPU/Mem config
+            for d in distance_sweep:
+                states.append([config["cpu"], config["mem"], replicas, pending, d])
+                
+            states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
+            
+            with torch.no_grad():
+                q_values = self.q_net(states_tensor).cpu()
+
+            q_min = torch.min(q_values)
+            q_max = torch.max(q_values)
+            
+            if q_max == q_min:
+                threshold = q_max
+            else:
+                threshold = (q_max + q_min) / 2
+
+            cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
+            fig.colorbar(cax, ax=ax, label='Estimated Q-Value')
+            
+            # Label axes
+            ax.set_xticks(range(self.n_actions))
+            ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
+            ax.set_yticks(range(len(distance_sweep)))
+            ax.set_yticklabels([f"Dist={r}" for r in distance_sweep])
+            
+            # Annotate text on the heatmap for exact values
+            for i in range(len(distance_sweep)):
+                for j in range(self.n_actions):
+                    val = q_values[i, j]
+                    color = "black" if val > threshold else "white"
+                    ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
+                    
+            ax.set_xlabel('Actions')
+            ax.set_ylabel('Distance')
+            ax.set_title(f"{config['title']}\n(CPU: {config['cpu']}m / Mem: {config['mem']}Mi)")
+
+        # Adjust layout so the suptitle and subplots don't overlap
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Saved DQN visualization to {save_path}")
+        else:
+            plt.show()
+        plt.close()
+
+    def plot_learning_curve(self, save_path=None):
+        """Plot the moving average of rewards and loss over time."""
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+        
+        # Plot Rewards
+        ax = axes[0]
+        if len(self.reward_history) > 0:
+            window = min(100, len(self.reward_history))
+            rolling_rewards = np.convolve(self.reward_history, np.ones(window)/window, mode='valid')
+            ax.plot(self.reward_history, alpha=0.3, color='blue', label='Raw Step Reward')
+            ax.plot(np.arange(window-1, len(self.reward_history)), rolling_rewards, color='darkblue', label=f'{window}-Step Moving Avg')
+            ax.set_title('Reward Learning Curve')
+            ax.set_xlabel('Steps')
+            ax.set_ylabel('Reward')
+            ax.legend()
+        else:
+            ax.set_title('Reward Learning Curve (No Data)')
+        
+        # Plot Loss
+        ax = axes[1]
+        if len(self.loss_history) > 0:
+            window = min(100, len(self.loss_history))
+            rolling_loss = np.convolve(self.loss_history, np.ones(window)/window, mode='valid')
+            ax.plot(self.loss_history, alpha=0.3, color='red', label='Raw Step Loss')
+            ax.plot(np.arange(window-1, len(self.loss_history)), rolling_loss, color='darkred', label=f'{window}-Step Moving Avg')
+            ax.set_title('DQN Loss Curve')
+            ax.set_xlabel('Training Steps')
+            ax.set_ylabel('Loss (MSE)')
+            ax.legend()
+        else:
+            ax.set_title('DQN Loss Curve (No Data)')
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Saved learning curve to {save_path}")
+        else:
+            plt.show()
+        plt.close()
+        
     def __repr__(self):
         return f"DQNAgent(state_dim={self.state_dim}, n_actions={self.n_actions})"
-
-
-###############################################################################
-# Training function (optional - for backward compatibility)
-###############################################################################
-
-def train_dqn(env, agent, num_episodes=500):
-    """
-    Train DQN agent on environment.
-    
-    Args:
-        env: gym environment
-        agent: DQNAgent instance
-        num_episodes: number of episodes to train
-    
-    Returns:
-        episode_rewards: list of total rewards per episode
-    """
-    episode_rewards = []
-
-    for ep in range(num_episodes):
-        obs, _ = env.reset()
-        state = obs
-        
-        done = False
-        ep_reward = 0
-
-        while not done:
-            action = agent.act(state)
-            next_obs, reward, done, truncated, _ = env.step(action)
-            done = done or truncated
-            
-            agent.update(state, action, next_obs, reward, done)
-            
-            state = next_obs
-            ep_reward += reward
-
-        episode_rewards.append(ep_reward)
-        
-        if (ep + 1) % 50 == 0:
-            recent_rewards = episode_rewards[-50:]
-            avg_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0.0
-            print(f"Episode {ep + 1}/{num_episodes}, Avg Reward (last 50): {avg_reward:.2f}")
-
-    return episode_rewards

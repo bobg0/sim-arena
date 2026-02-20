@@ -12,12 +12,15 @@ PYTHONPATH=. python runner/multi_step.py \
   --deploy web \
   --target 5 \
   --steps 5 \
-  --agent scale_replicas \
+  --agent greedy \
   --log-level DEBUG
 
-# heuristic only acts when pending>0 (bumps CPU), so often chooses noop if all ready
-"""
+# Use dqn agent to learn over multiple steps (good for testing learning)
+python runner/multi_step.py  --trace demo/trace-0001.msgpack  --deploy web \
+--agent dqn  --ns test-ns  --target 3  --steps 5 
 
+
+"""
 import sys
 from pathlib import Path
 import argparse
@@ -150,6 +153,8 @@ def main():
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
+    parser.add_argument("--load", type=str, default=None, help="Path to load an existing agent checkpoint")
+    parser.add_argument("--save", type=str, default=None, help="Path to save the agent checkpoint after the episode")
 
     args = parser.parse_args()
 
@@ -164,7 +169,11 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=7)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=7)
+
+    if agent is not None and args.load:
+        logger.info(f"Loading agent weights from {args.load}...")
+        agent.load(args.load)
 
     result = run_episode(
         trace_path=args.trace,
@@ -178,6 +187,11 @@ def main():
         reward_name=args.reward,
         agent=agent,
     )
+
+    if agent is not None and args.save:
+        logger.info(f"Saving updated agent weights to {args.save}...")
+        agent.save(args.save)
+
     return 0 if result["status"] == 0 else 1
 
 if __name__ == "__main__":
