@@ -207,8 +207,10 @@ __marimo__/
 
 
 # Simkube specific ignores
-.tmp/trace-next.msgpack
+.tmp/
 runs/step.jsonl
 runs/summary.json
 demo/traces/
 demo/trace-next.msgpack
+checkpoints/
+nohup.out
