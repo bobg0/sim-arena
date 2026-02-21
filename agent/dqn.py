@@ -18,6 +18,7 @@ class QNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dims=(24, 48)):
         super().__init__()
         self.net = nn.Sequential(
+            nn.BatchNorm1d(state_dim),  # Normalizes input features to prevent large values (like CPU/Mem) from dominating
             nn.Linear(state_dim, hidden_dims[0]),
             nn.ReLU(),
             nn.Linear(hidden_dims[0], hidden_dims[1]),
@@ -65,7 +66,7 @@ class DQNAgent(BaseAgent):
         gamma=0.97,
         eps_start=1.0,
         eps_end=0.1,
-        eps_decay_steps=500,
+        eps_decay_steps=20000,
         replay_buffer_size=2000,
         batch_size=32,
         target_update_freq=50,
@@ -102,6 +103,10 @@ class DQNAgent(BaseAgent):
         self.total_steps = 0
         self.reward_history = []
         self.loss_history = []
+        
+        # Variable-length episode tracking
+        self.current_episode_reward = 0.0
+        self.episode_reward_history = []
 
     def _calculate_epsilon(self):
         """Calculate current epsilon value based on decay schedule."""
@@ -127,12 +132,21 @@ class DQNAgent(BaseAgent):
             state = state.unsqueeze(0)
         
         with torch.no_grad():
+            # Set to eval mode so BatchNorm doesn't crash on batch_size=1
+            self.q_net.eval()
             q_values = self.q_net(state)
+            self.q_net.train()
             return q_values.argmax(dim=1).item()
 
     def update(self, state, action, next_state, reward, done):
         """Store transition and perform learning update if enough samples."""
         self.reward_history.append(float(reward))
+        
+        # Track true episode returns
+        self.current_episode_reward += float(reward)
+        if done:
+            self.episode_reward_history.append(self.current_episode_reward)
+            self.current_episode_reward = 0.0
 
         # Convert to tensors
         if not isinstance(state, torch.Tensor):
@@ -212,6 +226,8 @@ class DQNAgent(BaseAgent):
             'total_steps': self.total_steps,
             'reward_history': self.reward_history,
             'loss_history': self.loss_history,
+            'episode_reward_history': self.episode_reward_history,
+            'current_episode_reward': self.current_episode_reward,
             'hyperparams': {
                 'state_dim': self.state_dim,
                 'n_actions': self.n_actions,
@@ -240,6 +256,10 @@ class DQNAgent(BaseAgent):
         self.reward_history = checkpoint.get('reward_history', [])
         self.loss_history = checkpoint.get('loss_history', [])
         
+        # Safely load the new keys (defaults to empty/0 if loading an older checkpoint)
+        self.episode_reward_history = checkpoint.get('episode_reward_history', [])
+        self.current_episode_reward = checkpoint.get('current_episode_reward', 0.0)
+        
         # Optional: verify hyperparameters match
         saved_params = checkpoint.get('hyperparams', {})
         if saved_params.get('n_actions') != self.n_actions:
@@ -251,6 +271,8 @@ class DQNAgent(BaseAgent):
         """Reset agent (useful for multi-environment training)."""
         self.reward_history = []
         self.loss_history = []
+        self.episode_reward_history = []
+        self.current_episode_reward = 0.0
     
     def visualize(self, save_path=None):
         """Visualize the DQN Q-values for a sweep of representative states across 4 subplots."""
@@ -275,6 +297,9 @@ class DQNAgent(BaseAgent):
         
         # Flatten axes array for easy iteration
         axes = axes.flatten()
+
+        # Set to eval mode for visualization so BatchNorm statistics don't distort on small batches
+        self.q_net.eval()
 
         for idx, config in enumerate(configs):
             ax = axes[idx]
@@ -317,6 +342,9 @@ class DQNAgent(BaseAgent):
             ax.set_ylabel('Distance')
             ax.set_title(f"{config['title']}\n(CPU: {config['cpu']}m / Mem: {config['mem']}Mi)")
 
+        # Restore training mode
+        self.q_net.train()
+
         # Adjust layout so the suptitle and subplots don't overlap
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         
@@ -328,34 +356,37 @@ class DQNAgent(BaseAgent):
         plt.close()
 
     def plot_learning_curve(self, save_path=None):
-        """Plot the moving average of rewards and loss over time."""
+        """Plot the true episodic returns and moving average of loss."""
         import matplotlib.pyplot as plt
         import numpy as np
 
         fig, axes = plt.subplots(2, 1, figsize=(10, 8))
         
-        # Plot Rewards
+        # Plot True Episode Rewards
         ax = axes[0]
-        if len(self.reward_history) > 0:
-            window = min(100, len(self.reward_history))
-            rolling_rewards = np.convolve(self.reward_history, np.ones(window)/window, mode='valid')
-            ax.plot(self.reward_history, alpha=0.3, color='blue', label='Raw Step Reward')
-            ax.plot(np.arange(window-1, len(self.reward_history)), rolling_rewards, color='darkblue', label=f'{window}-Step Moving Avg')
-            ax.set_title('Reward Learning Curve')
-            ax.set_xlabel('Steps')
-            ax.set_ylabel('Reward')
+        if len(self.episode_reward_history) > 0:
+            ax.plot(self.episode_reward_history, marker='o', markersize=4, alpha=0.4, color='blue', label='Total Episode Return')
+            
+            # 10-Episode Moving Average
+            if len(self.episode_reward_history) >= 10:
+                window = 10
+                rolling_rewards = np.convolve(self.episode_reward_history, np.ones(window)/window, mode='valid')
+                ax.plot(np.arange(window-1, len(self.episode_reward_history)), rolling_rewards, color='darkblue', linewidth=2, label=f'{window}-Ep Moving Avg')
+            
+            ax.set_title('Episodic Return (Variable Length)')
+            ax.set_xlabel('Episodes')
+            ax.set_ylabel('Sum of Rewards')
             ax.legend()
         else:
-            ax.set_title('Reward Learning Curve (No Data)')
-        
-        # Plot Loss
+            ax.set_title('Episodic Return (No Episode Data Yet)')
+
+        # Plot Loss (Still step-based, so a standard rolling average works well here)
         ax = axes[1]
         if len(self.loss_history) > 0:
             window = min(100, len(self.loss_history))
             rolling_loss = np.convolve(self.loss_history, np.ones(window)/window, mode='valid')
-            ax.plot(self.loss_history, alpha=0.3, color='red', label='Raw Step Loss')
-            ax.plot(np.arange(window-1, len(self.loss_history)), rolling_loss, color='darkred', label=f'{window}-Step Moving Avg')
-            ax.set_title('DQN Loss Curve')
+            ax.plot(np.arange(window-1, len(self.loss_history)), rolling_loss, color='darkred', linewidth=2, label=f'{window}-Step Moving Avg')
+            ax.set_title('DQN Step Loss')
             ax.set_xlabel('Training Steps')
             ax.set_ylabel('Loss (MSE)')
             ax.legend()
