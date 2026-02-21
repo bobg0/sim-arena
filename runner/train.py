@@ -59,7 +59,7 @@ def main():
     parser.add_argument("--steps", type=int, default=200, help="Max steps per episode (default: 200)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (random if not specified)")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
-    parser.add_argument("--Naction", type=int, default="4", help="number of actions for the agent (default: 4)")
+    parser.add_argument("--Naction", type=int, default=4, help="number of actions for the agent (default: 4)")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (default: shaped)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
