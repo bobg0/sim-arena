@@ -225,11 +225,11 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         distance = target - obs.get("total", 0)
 
         dqn_state = [
-            cpu_m,
-            mem_mi,
-            resources["replicas"],
-            obs.get("pending", 0),
-            distance,
+            cpu_m / 4000,
+            mem_mi / 4096,
+            resources["replicas"] / 5,
+            obs.get("pending", 0) / 5,
+            distance / 5,
         ]
         
         # 5) Policy/agent decision

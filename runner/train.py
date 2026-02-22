@@ -69,6 +69,16 @@ def main():
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
 
+    # DQN Hyperparameters (Optional)
+    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for DQN (default: 0.001)")
+    parser.add_argument("--gamma", type=float, default=0.97, help="Discount factor (default: 0.97)")
+    parser.add_argument("--eps-start", type=float, default=1.0, help="Starting epsilon (default: 1.0)")
+    parser.add_argument("--eps-end", type=float, default=0.1, help="Ending epsilon (default: 0.1)")
+    parser.add_argument("--eps-decay", type=int, default=1000, help="Epsilon decay steps (default: 1000)")
+    parser.add_argument("--buffer-size", type=int, default=2000, help="Replay buffer size (default: 2000)")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
+    parser.add_argument("--target-update", type=int, default=50, help="Target network update frequency (default: 50)")
+
     args = parser.parse_args()
 
     # Resolve reproducibility
@@ -122,7 +132,19 @@ def main():
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=args.Naction, epsilon=0.1)
         file_ext = ".json"
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=5, n_actions=args.Naction)
+        agent = Agent(
+            AgentType.DQN, 
+            state_dim=5, 
+            n_actions=args.Naction,
+            learning_rate=args.lr,
+            gamma=args.gamma,
+            eps_start=args.eps_start,
+            eps_end=args.eps_end,
+            eps_decay_steps=args.eps_decay,
+            replay_buffer_size=args.buffer_size,
+            batch_size=args.batch_size,
+            target_update_freq=args.target_update
+        )
         file_ext = ".pt"
     else:
         logger.warning(f"Using policy-based agent '{args.agent}', checkpointing will be skipped.")
