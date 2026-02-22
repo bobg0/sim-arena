@@ -134,7 +134,7 @@ def main():
     elif args.agent == "dqn":
         agent = Agent(
             AgentType.DQN, 
-            state_dim=5, 
+            state_dim=4, 
             n_actions=args.Naction,
             learning_rate=args.lr,
             gamma=args.gamma,

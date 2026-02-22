@@ -286,13 +286,13 @@ class DQNAgent(BaseAgent):
         ]
 
         # Constants for the sweep
-        replicas = 2
+        # replicas = 2
         pending = 0
         distance_sweep = list(range(5))  # Sweeps distances 0 through 4
         
         # Set up a 2x2 grid of subplots
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Replica: 2, Pending: 0)', fontsize=16)
+        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Pending: 0)', fontsize=16)
         
         # Flatten axes array for easy iteration
         axes = axes.flatten()
@@ -306,7 +306,7 @@ class DQNAgent(BaseAgent):
             
             # Build state tensors for this specific subplot's CPU/Mem config
             for d in distance_sweep:
-                states.append([config["cpu"], config["mem"], replicas, pending, d])
+                states.append([config["cpu"], config["mem"], pending, d])
                 
             states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
             
