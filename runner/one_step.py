@@ -227,7 +227,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         dqn_state = [
             cpu_m / 4000,
             mem_mi / 4096,
-            resources["replicas"] / 5,
+            # resources["replicas"] / 5,
             obs.get("pending", 0) / 5,
             distance / 5,
         ]
@@ -341,7 +341,7 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=5, n_actions=7)
+        agent = Agent(AgentType.DQN, state_dim=4, n_actions=7)
 
     result = one_step(
         trace_path=args.trace,
