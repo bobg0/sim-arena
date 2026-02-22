@@ -18,7 +18,6 @@ class QNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dims=(24, 48)):
         super().__init__()
         self.net = nn.Sequential(
-            nn.BatchNorm1d(state_dim),  # Normalizes input features to prevent large values (like CPU/Mem) from dominating
             nn.Linear(state_dim, hidden_dims[0]),
             nn.ReLU(),
             nn.Linear(hidden_dims[0], hidden_dims[1]),
@@ -66,7 +65,7 @@ class DQNAgent(BaseAgent):
         gamma=0.97,
         eps_start=1.0,
         eps_end=0.1,
-        eps_decay_steps=20000,
+        eps_decay_steps=1000,
         replay_buffer_size=2000,
         batch_size=32,
         target_update_freq=50,
