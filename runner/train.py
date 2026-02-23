@@ -190,15 +190,20 @@ def main():
                 break
                 
             if agent is not None:
+                # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
-                
                 agent.visualize(save_path=str(latest_plot_path))
                 agent.plot_learning_curve(save_path=str(latest_curve_path))
                 
+                # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:
                     ckpt_path = checkpoint_folder / f"checkpoint_ep{ep}{file_ext}"
+                    plot_path = checkpoint_folder / f"agent_visualization_ep{ep}.png"
+                    
                     agent.save(str(ckpt_path))
-                    logger.info(f"💾 Saved interval checkpoint: {ckpt_path}")
+                    agent.visualize(save_path=str(plot_path))
+                    
+                    logger.info(f"💾 Saved interval checkpoint and visualizations for Episode {ep}")
 
     except KeyboardInterrupt:
         logger.warning("\n⚠️  Training interrupted by user (KeyboardInterrupt).")
