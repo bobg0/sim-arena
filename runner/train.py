@@ -23,6 +23,12 @@ Sample usage:
     --agent dqn \
     --load checkpoints/dqn_20260218_22/checkpoint_ep20.pt \
     --episodes 50 &
+
+Important Notes:
+Before running, ensure you run the following commands to clean up any ghost simulations:
+    pkill -f "train.py.*--ns <your-namespace>"
+    kubectl delete simulations.simkube.io --all -n <your-namespace>
+
 """
 
 import sys
