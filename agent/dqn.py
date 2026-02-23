@@ -280,9 +280,9 @@ class DQNAgent(BaseAgent):
         # Define configurations for the 4 subplots (Low/High CPU and Low/High Mem)
         configs = [
             {"title": "Low CPU / Low Mem", "cpu": 500, "mem": 512},
-            {"title": "High CPU / Low Mem", "cpu": 2000, "mem": 512},
-            {"title": "Low CPU / High Mem", "cpu": 500, "mem": 2048},
-            {"title": "High CPU / High Mem", "cpu": 2000, "mem": 2048}
+            {"title": "High CPU / Low Mem", "cpu": 1500, "mem": 512},
+            {"title": "Low CPU / High Mem", "cpu": 500, "mem": 1024},
+            {"title": "High CPU / High Mem", "cpu": 1500, "mem": 1024}
         ]
 
         pending = 0
