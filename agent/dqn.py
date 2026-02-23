@@ -285,26 +285,19 @@ class DQNAgent(BaseAgent):
             {"title": "High CPU / High Mem", "cpu": 2000, "mem": 2048}
         ]
 
-        # Constants for the sweep
-        # replicas = 2
         pending = 0
         distance_sweep = list(range(5))  # Sweeps distances 0 through 4
         
-        # Set up a 2x2 grid of subplots
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Pending: 0)', fontsize=16)
-        
-        # Flatten axes array for easy iteration
-        axes = axes.flatten()
-
-        # Set to eval mode for visualization so BatchNorm statistics don't distort on small batches
+        # Set to eval mode for visualization
         self.q_net.eval()
 
-        for idx, config in enumerate(configs):
-            ax = axes[idx]
+        # --- STEP 1: Pre-compute all Q-values to find global min and max ---
+        all_q_values = []
+        global_min = float('inf')
+        global_max = float('-inf')
+
+        for config in configs:
             states = []
-            
-            # Build state tensors for this specific subplot's CPU/Mem config
             for d in distance_sweep:
                 states.append([config["cpu"], config["mem"], pending, d])
                 
@@ -312,17 +305,29 @@ class DQNAgent(BaseAgent):
             
             with torch.no_grad():
                 q_values = self.q_net(states_tensor).cpu()
+                
+            all_q_values.append(q_values)
+            global_min = min(global_min, torch.min(q_values).item())
+            global_max = max(global_max, torch.max(q_values).item())
 
-            q_min = torch.min(q_values)
-            q_max = torch.max(q_values)
+        # Determine threshold for text color (black vs white) based on global scale
+        if global_max == global_min:
+            threshold = global_max
+        else:
+            threshold = (global_max + global_min) / 2
+
+        # --- STEP 2: Plot the heatmaps using the global scale ---
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Pending: 0)', fontsize=16)
+        axes = axes.flatten()
+
+        im = None # Keep track of the last image for the global colorbar
+
+        for idx, (config, q_values) in enumerate(zip(configs, all_q_values)):
+            ax = axes[idx]
             
-            if q_max == q_min:
-                threshold = q_max
-            else:
-                threshold = (q_max + q_min) / 2
-
-            cax = ax.imshow(q_values, aspect='auto', cmap='viridis')
-            fig.colorbar(cax, ax=ax, label='Estimated Q-Value')
+            # Pass vmin and vmax to lock the color scale across all subplots
+            im = ax.imshow(q_values, aspect='auto', cmap='viridis', vmin=global_min, vmax=global_max)
             
             # Label axes
             ax.set_xticks(range(self.n_actions))
@@ -330,12 +335,12 @@ class DQNAgent(BaseAgent):
             ax.set_yticks(range(len(distance_sweep)))
             ax.set_yticklabels([f"Dist={r}" for r in distance_sweep])
             
-            # Annotate text on the heatmap for exact values
+            # Annotate text on the heatmap
             for i in range(len(distance_sweep)):
                 for j in range(self.n_actions):
-                    val = q_values[i, j]
+                    val = q_values[i, j].item()
                     color = "black" if val > threshold else "white"
-                    ax.text(j, i, f"{val.item():.2f}", ha="center", va="center", color=color)
+                    ax.text(j, i, f"{val:.2f}", ha="center", va="center", color=color)
                     
             ax.set_xlabel('Actions')
             ax.set_ylabel('Distance')
@@ -344,8 +349,13 @@ class DQNAgent(BaseAgent):
         # Restore training mode
         self.q_net.train()
 
-        # Adjust layout so the suptitle and subplots don't overlap
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        # Add a single global colorbar for the entire figure
+        fig.subplots_adjust(right=0.88)
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+        fig.colorbar(im, cax=cbar_ax, label='Estimated Q-Value')
+
+        # Adjust layout
+        plt.subplots_adjust(top=0.88, bottom=0.1, left=0.1, right=0.9, hspace=0.3, wspace=0.2)
         
         if save_path:
             plt.savefig(save_path)
