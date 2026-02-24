@@ -14,7 +14,7 @@ Sample usage:
     --episodes 50 --log-to-checkpoint
 
   # Single trace (legacy)
-  PYTHONPATH=. python runner/train.py --trace demo/trace-cpu-slight.msgpack --ns test-ns --target 3 --agent dqn
+  PYTHONPATH=. nohup python runner/train.py --trace demo/trace-0001.msgpack --ns test-ns --target 3 --agent dqn &
 
   # Resume from checkpoint (reuses checkpoint folder, resumes from last episode)
   PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--steps", type=int, default=200, help="Max steps per episode (default: 200)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (random if not specified)")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
-    parser.add_argument("--Naction", type=int, default=7, help="number of actions for the agent (default: 7, must match ACTION_SPACE in one_step.py)")
+    parser.add_argument("--Naction", type=int, default=4, help="number of actions for the agent (default: 4, don't use reduction actions)")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (default: shaped)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
@@ -70,9 +70,10 @@ def main():
     parser.add_argument("--episodes", type=int, default=200, help="Number of episodes to train (default: 200)")
     parser.add_argument("--checkpoint-interval", type=int, default=10, help="Save checkpoint every N episodes")
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
-    parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from progress.json or checkpoint_epN)")
+    parser.add_argument("--resume-folder", action="store_true", help="If --load is used, save new checkpoints in the loaded model's folder instead of creating a new one")
+    parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from checkpoint_epN)")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
-    parser.add_argument("--log-to-checkpoint", action="store_true", help="Redirect logs to checkpoint folder (default: print to terminal)")
+    parser.add_argument("--log-to-terminal", action="store_true", help="Print all logs to terminal (default: redirect logs to checkpoint folder)")
 
     # DQN Hyperparameters (Optional)
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for DQN (default: 0.001)")
@@ -109,20 +110,27 @@ def main():
     # Ensure the randomly generated seed is saved in the args namespace for logging
     args.seed = base_seed
 
-    # Setup checkpoint directory: reuse folder when resuming (--load), else create new
+    # Setup checkpoint directory: reuse folder when resuming ONLY IF --resume-folder is passed
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") # Added %M%S to prevent collisions on rapid restarts
+    
     if args.load:
         load_path = Path(args.load).resolve()
-        if load_path.exists():
-            checkpoint_folder = load_path.parent
-        else:
+        if not load_path.exists():
             raise SystemExit(f"--load path not found: {args.load}")
+            
+        if args.resume_folder:
+            checkpoint_folder = load_path.parent
+            logger.info(f"Resuming in existing folder: {checkpoint_folder}")
+        else:
+            checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
+            logger.info(f"Loading weights from {load_path}, but saving to NEW folder: {checkpoint_folder}")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H")
         checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
+        
     checkpoint_folder.mkdir(parents=True, exist_ok=True)
 
     log_file = None
-    if args.log_to_checkpoint:
+    if not args.log_to_terminal:
         log_file_path = checkpoint_folder / "train.log"
         log_file = open(log_file_path, "a", buffering=1)
         print(f"Logs → {log_file_path}", flush=True)
@@ -166,7 +174,7 @@ def main():
     elif args.agent == "dqn":
         agent = Agent(
             AgentType.DQN,
-            state_dim=5,
+            state_dim=4,  # [current_pods, cpu_util, mem_util, target_pods]
             n_actions=args.Naction,
             learning_rate=args.lr,
             gamma=args.gamma,
@@ -190,36 +198,38 @@ def main():
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
     latest_curve_path = checkpoint_folder / "learning_curve_latest.png"
-    progress_path = checkpoint_folder / "progress.json"
 
-    # When resuming, start from the episode after the last completed one
+   # When resuming, start from the episode after the last completed one
     start_ep = 1
     if args.start_episode is not None:
         start_ep = max(1, args.start_episode)
         if args.load:
             logger.info(f"Starting from episode {start_ep} (--start-episode override)")
     elif args.load:
-        last_ep = None
-        if progress_path.exists():
+        last_ep = 0
+        if str(args.load).endswith(".pt"):
             try:
-                with open(progress_path) as f:
-                    prog = json.load(f)
-                last_ep = prog.get("episode", 0)
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Could not read progress.json: {e}")
-        if last_ep is None:
-            # Fallback: infer from checkpoint_epN files (for runs before progress.json existed)
-            pat = re.compile(rf"checkpoint_ep(\d+)\{re.escape(file_ext)}$")
-            for p in checkpoint_folder.iterdir():
-                m = pat.match(p.name)
-                if m:
-                    n = int(m.group(1))
-                    last_ep = n if last_ep is None else max(last_ep, n)
-            if last_ep is None:
-                last_ep = 0
+                import torch
+                # Load the checkpoint dict directly to read the episode history length
+                checkpoint_data = torch.load(args.load, map_location="cpu", weights_only=False)
+                last_ep = len(checkpoint_data.get('episode_reward_history', []))
+            except Exception as e:
+                logger.warning(f"Failed to extract episode history from checkpoint: {e}")
+        else:
+            # Basic fallback for non-PyTorch agents (like greedy JSON saves)
+            try:
+                with open(args.load, "r") as f:
+                    data = json.load(f)
+                    last_ep = len(data.get('episode_reward_history', []))
+            except Exception:
+                pass
+                
         if last_ep > 0:
             start_ep = last_ep + 1
-            logger.info(f"Resuming from episode {start_ep} (last completed: {last_ep})")
+            logger.info(f"Resuming from episode {start_ep} (read {last_ep} completed episodes directly from checkpoint)")
+        else:
+            logger.info("Resuming from episode 1 (could not find episode history in checkpoint)")
+
     if start_ep > args.episodes:
         logger.info(f"Training already complete (reached episode {start_ep - 1}). Nothing to do.")
         return 0
