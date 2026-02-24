@@ -106,3 +106,24 @@ def current_requests(namespace: str, deploy: str) -> dict:
         print(f"Error reading deployment '{deploy}': {e}")
         # Return a "safe" empty state
         return {"cpu": "0", "memory": "0", "replicas": 0}
+
+
+def add_obs_noise(obs: dict, scale: float, rng=None) -> dict:
+    """
+    Add Gaussian noise to obs for sim-to-real robustness (#8).
+    Returns a copy with perturbed ready/pending/total (clamped to non-negative integers).
+    """
+    import random
+    rng = rng or random
+    out = dict(obs)
+    for key in ("ready", "pending", "total"):
+        if key in out:
+            raw = out[key] + rng.gauss(0, scale)
+            out[key] = max(0, int(round(raw)))
+    # Keep total >= ready + pending semantics: ensure consistency
+    total = out.get("total", 0)
+    ready = out.get("ready", 0)
+    pending = out.get("pending", 0)
+    if ready + pending > total:
+        out["total"] = max(total, ready + pending)
+    return out

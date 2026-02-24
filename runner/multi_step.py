@@ -51,6 +51,8 @@ def run_episode(
     reward_name: str = "shaped",
     agent=None,
     kind_cluster: str = "cluster",
+    reward_kwargs=None,
+    obs_noise_scale: float = 0.0,
 ):
     """
     Run a multi-step episode.
@@ -82,6 +84,9 @@ def run_episode(
             reward_name=reward_name,
             agent=agent,
             kind_cluster=kind_cluster,
+            step_idx=step_idx,
+            reward_kwargs=reward_kwargs,
+            obs_noise_scale=obs_noise_scale,
         )
 
         if result["status"] != 0:
@@ -172,7 +177,7 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=7)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=7)
 
     if agent is not None and args.load:
         logger.info(f"Loading agent weights from {args.load}...")

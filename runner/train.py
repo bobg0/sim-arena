@@ -84,10 +84,14 @@ def main():
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
     parser.add_argument("--target-update", type=int, default=50, help="Target network update frequency (default: 50)")
 
+    # cost_aware_v2 reward tuning
+    parser.add_argument("--step-penalty", type=float, default=0.0, help="Per-step penalty to favor faster fixes (default: 0)")
+    parser.add_argument("--obs-noise", type=float, default=0.0, help="Obs noise std for sim-to-real robustness (default: 0)")
+
     args = parser.parse_args()
 
     # Traces with incompatible SimKube v2 format (cause 404 "web" deployment not found)
-    TRACE_EXCLUDE = {"trace-normalized.msgpack"}
+    TRACE_EXCLUDE = {"trace-v2.msgpack"}
 
     # Resolve trace path(s): dir -> list of .msgpack, file -> single-item list
     trace_path_arg = Path(args.trace)
@@ -154,6 +158,7 @@ def main():
     agent = None
     file_ext = ".json"
     # Must match ACTION_SPACE in one_step.py (7 actions: noop, bump_cpu, bump_mem, scale_up, reduce_cpu, reduce_mem, scale_down)
+    # state_dim must match dqn_state in one_step.py: [cpu_m/4000, mem_mi/4096, pending/5, distance/5, replicas/8] = 5
     n_actions = 7
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=args.Naction, epsilon=0.1)
@@ -231,6 +236,11 @@ def main():
             logger.info(f"🚀 Episode {ep}/{args.episodes} | trace: {Path(trace_path).name}")
             logger.info("=" * 60)
             
+            # Build reward_kwargs for cost_aware_v2
+            reward_kwargs = None
+            if args.reward == "cost_aware_v2":
+                reward_kwargs = {"step_penalty": args.step_penalty}
+
             # Run the episode
             result = run_episode(
                 trace_path=trace_path,
@@ -242,7 +252,9 @@ def main():
                 seed=ep_seed,
                 agent_name=args.agent,
                 reward_name=args.reward,
-                agent=agent
+                agent=agent,
+                reward_kwargs=reward_kwargs,
+                obs_noise_scale=args.obs_noise,
             )
             
             if result["status"] != 0:
@@ -252,10 +264,6 @@ def main():
             if agent is not None:
                 # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
-<<<<<<< HEAD
-                agent.visualize(save_path=str(latest_plot_path))
-                agent.plot_learning_curve(save_path=str(latest_curve_path))
-=======
                 with open(progress_path, "w") as f:
                     json.dump({"episode": ep}, f)
                 try:
@@ -263,7 +271,6 @@ def main():
                     agent.plot_learning_curve(save_path=str(latest_curve_path))
                 except Exception as e:
                     logger.warning(f"Skipping visualization (install matplotlib for plots): {e}")
->>>>>>> 73b6857 (Training improvements: resume from checkpoint, progress.json, trace scenarios, trace exclusions)
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:

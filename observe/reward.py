@@ -1,6 +1,7 @@
 # observe/reward.py
 
-from typing import Callable, Dict
+import functools
+from typing import Any, Callable, Dict, Optional
 from runner.safeguards import (
     parse_cpu_to_millicores,
     parse_memory_to_bytes,
@@ -10,7 +11,7 @@ from runner.safeguards import (
 )
 
 
-def reward_base(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
+def reward_base(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> int:
     """
     Calculates a simple binary reward.
     
@@ -35,7 +36,7 @@ def reward_base(obs: dict, target_total: int, T_s: int, resources: dict) -> int:
         return 0
 
 
-def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:
     """
     Improved reward function with distance-based penalties.
     
@@ -84,7 +85,7 @@ def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict) -> fl
     final_reward = max(-1.0, min(1.0, reward))
     return final_reward
 
-def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:
 
     ready = obs.get("ready", 0)
     pending = obs.get("pending", 0)
@@ -118,54 +119,109 @@ def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict) -> float
     final_reward = max(-1.0, min(1.0, reward))
     return final_reward
 
-def reward_cost_aware(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
-    """
-    Cost-aware reward: penalizes over-allocation even when the deployment is healthy.
-    
-    Teaches the agent to fix problems with minimal resources, not just "any fix works."
-    - Success bonus when ready==target, pending==0
-    - Cost penalty: higher CPU/memory usage and excess replicas reduce the reward
-    - When not healthy: uses shaped-style penalties for distance, pending, etc.
-    
-    Returns a float between -1.0 and 1.0
-    """
-    ready = obs.get("ready", 0)
-    pending = obs.get("pending", 0)
-    total = obs.get("total", 0)
-    
-    # Perfect health: exactly at target with no pending pods
-    if ready == target_total and pending == 0 and total == target_total:
-        # Apply cost penalty for over-allocation (total cluster usage)
-        cpu_per_pod_m = parse_cpu_to_millicores(str(resources.get("cpu", "0m")))
-        mem_per_pod_b = parse_memory_to_bytes(str(resources.get("memory", "0Mi")))
-        replicas = int(resources.get("replicas", 0))
-        total_cpu_m = cpu_per_pod_m * replicas
-        total_mem_b = mem_per_pod_b * replicas
-        
-        # Normalize to node capacity (16 CPUs, 32 GB)
-        cpu_ratio = min(1.0, total_cpu_m / MAX_CPU_MILLICORES)
-        mem_ratio = min(1.0, total_mem_b / MAX_MEMORY_BYTES)
-        replica_waste = max(0, replicas - target_total)
-        
-        # Base success reward, minus cost penalties
-        cost_penalty = 0.08 * cpu_ratio + 0.08 * mem_ratio + 0.12 * replica_waste
-        return max(0.0, 1.0 - cost_penalty)
-    
-    # Not healthy: use shaped-style penalties
-    reward = 0.0
-    distance = abs(ready - target_total)
-    reward += -0.1 * distance
-    if pending > 0:
-        reward += -0.05 * pending
-    if total > target_total:
-        reward += -0.15 * (total - target_total)
-    elif total < target_total:
-        reward += -0.08 * (target_total - total)
-    
-    return max(-1.0, min(1.0, reward))
+# Reference floor for "minimal reasonable" per-pod; no K8s universal standard exists.
+# 500m/256Mi match our action step sizes and align with common K8s doc examples.
+REF_CPU_M = 500
+REF_MEM_B = 256 * 1024**2
 
 
-def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+def reward_cost_aware(obs: dict, target_total: int, resources: dict) -> dict:
+    """
+    Cost-aware reward: computes health, cost, and reward.
+    Returns dict with {health, cost, reward, healthy, ...} for tuning/validation.
+    """
+    ready = int(obs.get("ready", 0))
+    pending = int(obs.get("pending", 0))
+    total = int(obs.get("total", 0))
+    tgt = max(1, int(target_total))
+
+    ready_frac = max(0.0, min(1.0, ready / tgt))
+    pending_frac = max(0.0, min(1.0, pending / tgt))
+    overshoot_frac = max(0.0, (total - tgt) / tgt)
+    undershoot_frac = max(0.0, (tgt - total) / tgt)
+
+    # (#7) Non-linear ready: ready_frac^2 makes last step (2->3) more impactful
+    ready_term = ready_frac**2
+
+    # (#5) Overshoot only when healthy: when unhealthy, don't penalize overshoot
+    # Stronger pending penalty (0.85): prioritize fixing scheduling (CPU/mem) when pods are pending
+    health = (
+        1.0 * ready_term
+        - 0.85 * pending_frac
+        - 0.75 * undershoot_frac
+    )
+
+    cpu_per_pod_m = parse_cpu_to_millicores(str(resources.get("cpu", "0m")))
+    mem_per_pod_b = parse_memory_to_bytes(str(resources.get("memory", "0Mi")))
+
+    cap_cpu_m = max(REF_CPU_M + 1, int(MAX_CPU_MILLICORES / tgt))
+    cap_mem_b = max(REF_MEM_B + 1, int(MAX_MEMORY_BYTES / tgt))
+
+    cpu_excess = max(0, cpu_per_pod_m - REF_CPU_M)
+    mem_excess = max(0, mem_per_pod_b - REF_MEM_B)
+    cpu_excess_ratio = min(1.0, cpu_excess / (cap_cpu_m - REF_CPU_M)) if cap_cpu_m > REF_CPU_M else 0.0
+    mem_excess_ratio = min(1.0, mem_excess / (cap_mem_b - REF_MEM_B)) if cap_mem_b > REF_MEM_B else 0.0
+    replica_waste_ratio = min(1.0, max(0.0, overshoot_frac))
+
+    cost = (
+        0.45 * cpu_excess_ratio
+        + 0.45 * mem_excess_ratio
+        + 0.60 * replica_waste_ratio
+    )
+
+    healthy = (ready >= tgt) and (pending == 0)
+    if healthy:
+        reward = 0.9 - 0.6 * cost
+    else:
+        # Prioritize health when unhealthy: minimal cost weight so agent focuses on fixing scheduling
+        cost_weight = 0.08 if pending > 0 else 0.12
+        reward = health - cost_weight * cost
+
+    reward = max(-1.0, min(1.0, reward))
+
+    return {
+        "health": health,
+        "cost": cost,
+        "reward": reward,
+        "healthy": healthy,
+        "ready": ready,
+        "pending": pending,
+        "total": total,
+        "cpu_per_pod_m": cpu_per_pod_m,
+        "mem_per_pod_b": mem_per_pod_b,
+        "cpu_excess_ratio": cpu_excess_ratio,
+        "mem_excess_ratio": mem_excess_ratio,
+        "replica_waste_ratio": replica_waste_ratio,
+    }
+
+
+def reward_cost_aware_v2(
+    obs: dict,
+    target_total: int,
+    T_s: int,
+    resources: dict,
+    *,
+    step_idx: int = 0,
+    step_penalty: float = 0.0,
+    action_info: Optional[dict] = None,
+    **kwargs: Any,
+) -> float:
+    """
+    Cost-aware reward: healthy but wasteful penalized.
+    (#2) step_penalty: subtract per step to favor faster fixes.
+    action_blocked: extra penalty when agent tried an action but it was blocked by safeguards.
+    """
+    out = reward_cost_aware(obs, target_total, resources)
+    r = out["reward"]
+    if step_penalty > 0:
+        r -= step_penalty
+    # Penalty for blocked actions: discourages repeatedly trying invalid actions
+    if action_info and action_info.get("blocked", False):
+        r -= 0.12
+    return max(-1.0, min(1.0, r))
+
+
+def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:
     """
     Penalize exceeding max resource limits.
     """
@@ -190,14 +246,21 @@ def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -
 REWARD_REGISTRY: Dict[str, Callable] = {
     "base": reward_base,
     "shaped": reward_shaped,
-    "cost_aware": reward_cost_aware,
+    "cost_aware_v2": reward_cost_aware_v2,
     "max_punish": reward_max_punish,
     "rui": reward_rui,
 }
 
-def get_reward(name: str):
+def get_reward(name: str, **kwargs: Any) -> Callable:
+    """
+    Get reward function by name. For cost_aware_v2, pass step_penalty via kwargs:
+        get_reward("cost_aware_v2", step_penalty=0.01)
+    """
     if name not in REWARD_REGISTRY:
         raise ValueError(
             f"Unknown reward '{name}'. Available: {list(REWARD_REGISTRY.keys())}"
         )
-    return REWARD_REGISTRY[name]
+    fn = REWARD_REGISTRY[name]
+    if kwargs and name == "cost_aware_v2":
+        return functools.partial(fn, **kwargs)
+    return fn
