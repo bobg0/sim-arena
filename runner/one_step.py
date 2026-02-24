@@ -134,8 +134,12 @@ def write_step_record(record: dict) -> None:
 
 def update_summary(record: dict) -> None:
     if SUMMARY_LOG.exists():
-        with SUMMARY_LOG.open("r") as f:
-            summary = json.load(f)
+        try:
+            with SUMMARY_LOG.open("r") as f:
+                summary = json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"⚠️ Corrupted summary log found at {SUMMARY_LOG}. Starting fresh.")
+            summary = {"steps": [], "total_rewards": 0, "total_steps": 0}
     else:
         summary = {"steps": [], "total_rewards": 0, "total_steps": 0}
     
