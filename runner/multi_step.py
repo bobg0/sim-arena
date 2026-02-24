@@ -162,7 +162,6 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
     parser.add_argument("--load", type=str, default=None, help="Path to load an existing agent checkpoint")
     parser.add_argument("--save", type=str, default=None, help="Path to save the agent checkpoint after the episode")
-    parser.add_argument("--kind-cluster", type=str, default="cluster", help="Kind cluster name (for trace path ~/.local/kind-node-data/<name>)")
 
     args = parser.parse_args()
 
@@ -194,7 +193,6 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
-        kind_cluster=args.kind_cluster,
     )
 
     if agent is not None and args.save:
