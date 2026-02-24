@@ -3,6 +3,9 @@ Base agent class and unified wrapper for different RL agents.
 """
 
 from abc import ABC, abstractmethod
+
+# Action names for visualization (must match ACTION_SPACE in runner/one_step.py)
+ACTION_NAMES = ["noop", "+CPU", "+Mem", "+Rep", "-CPU", "-Mem", "-Rep"]
 from enum import Enum
 from typing import Any, Optional, Union
 

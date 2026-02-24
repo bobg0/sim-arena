@@ -1,7 +1,7 @@
 import random
 import json
 import os
-from .agent import BaseAgent
+from .agent import BaseAgent, ACTION_NAMES
 
 
 class EpsilonGreedyAgent(BaseAgent):
@@ -72,14 +72,15 @@ class EpsilonGreedyAgent(BaseAgent):
         """Visualize the learned Q-values as a bar chart."""
         import matplotlib.pyplot as plt
         
-        plt.figure(figsize=(8, 5))
+        plt.figure(figsize=(10, 5))
         actions = list(range(self.n_actions))
+        labels = ACTION_NAMES[:self.n_actions] if self.n_actions <= len(ACTION_NAMES) else [f"A{i}" for i in range(self.n_actions)]
         plt.bar(actions, self.values, color='skyblue', edgecolor='black')
         
-        plt.xlabel('Action Index')
+        plt.xlabel('Action')
         plt.ylabel('Estimated Q-Value')
         plt.title(f'Epsilon-Greedy Q-Values (epsilon={self.epsilon:.2f})')
-        plt.xticks(actions)
+        plt.xticks(actions, labels, rotation=45, ha='right')
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         
         if save_path:
