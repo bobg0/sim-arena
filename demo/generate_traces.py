@@ -185,7 +185,13 @@ def generate_traces(output_dir: Path) -> None:
         json_to_msgpack(str(json_path), str(msgpack_path))
         print(f"  {name}.json + {name}.msgpack")
 
-    print(f"\nGenerated {len(TRACES)} traces in {output_dir}/")
+    # Convert trace-normalized.json (SimKube v2 format) to msgpack if present
+    normalized_json = output_dir / "trace-normalized.json"
+    if normalized_json.exists():
+        json_to_msgpack(str(normalized_json), str(output_dir / "trace-normalized.msgpack"))
+        print("  trace-normalized.json → trace-normalized.msgpack")
+
+    print(f"\nGenerated traces in {output_dir}/")
 
 
 if __name__ == "__main__":

@@ -287,7 +287,9 @@ class DQNAgent(BaseAgent):
 
         pending = 0
         distance_sweep = list(range(5))  # Sweeps distances 0 through 4
-        
+        # replicas/8: 0.125 for 1, 0.25 for 2, 0.375 for 3 (target)
+        replicas_norm = 0.375  # target=3
+
         # Set to eval mode for visualization
         self.q_net.eval()
 
@@ -299,7 +301,7 @@ class DQNAgent(BaseAgent):
         for config in configs:
             states = []
             for d in distance_sweep:
-                states.append([config["cpu"], config["mem"], pending, d])
+                states.append([config["cpu"] / 4000, config["mem"] / 4096, pending / 5, d / 5, replicas_norm])
                 
             states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
             

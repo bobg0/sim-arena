@@ -1,11 +1,21 @@
 {
   "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
   "metadata": {
     "description": "Synthetic trace for local development"
   },
   "events": [
     {
       "ts": 1730390400,
+      "deleted_objs": [],
       "applied_objs": [
         {
           "apiVersion": "apps/v1",
@@ -44,8 +54,7 @@
             }
           }
         }
-      ],
-      "deleted_objs": []
+      ]
     }
   ]
 }

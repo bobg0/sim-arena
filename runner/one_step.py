@@ -12,15 +12,16 @@ Usage:
   python runner/one_step.py --trace demo/trace-scaling-v2.msgpack --ns virtual-default --deploy web --target 3 --duration 60 --reward shaped
 """
 import argparse
+import hashlib
 import json
 import logging
-import sys
-import time
-import hashlib
 import random
 import shutil
-from pathlib import Path
+import sys
+import time
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
 # Add project root to Python path (must be before local imports)
 script_dir = Path(__file__).parent.absolute()
@@ -33,7 +34,7 @@ from agent.agent import Agent, AgentType
 # Import project modules
 from ops.hooks import run_hooks
 from env import create_simulation, wait_fixed, delete_simulation
-from observe.reader import observe, current_requests
+from observe.reader import observe, current_requests, add_obs_noise
 from observe.reward import get_reward
 from env.actions.trace_io import load_trace, save_trace
 from env.actions.ops import (
@@ -148,7 +149,22 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent=None, kind_cluster: str = DEFAULT_KIND_CLUSTER):
+def one_step(
+    trace_path: str,
+    namespace: str,
+    deploy: str,
+    target: int,
+    duration: int,
+    seed: int = 0,
+    agent_name: str = "heuristic",
+    reward_name: str = "shaped",
+    agent=None,
+    kind_cluster: str = DEFAULT_KIND_CLUSTER,
+    step_idx: int = 0,
+    reward_kwargs: Optional[dict] = None,
+    obs_noise_scale: float = 0.0,
+    reward_fn=None,
+):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -199,6 +215,8 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         # 4) observe cluster state
         logger.debug(f"Observing cluster state in {virtual_namespace}...")
         obs = observe(virtual_namespace, deploy)
+        if obs_noise_scale > 0:
+            obs = add_obs_noise(obs, obs_noise_scale, rng=random)
         resources = current_requests(virtual_namespace, deploy)
         logger.info(f"Observation: {obs}")
         logger.info(f"Current requests: {resources}")
@@ -218,16 +236,26 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             mem_mi = int("".join(filter(str.isdigit, mem_raw)) or 0)
 
         distance = target - obs.get("total", 0)
+        total = obs.get("total", 0)
+        replicas = resources.get("replicas", total)
+        try:
+            replicas = int(replicas) if isinstance(replicas, (int, float)) else int(str(replicas))
+        except (ValueError, TypeError):
+            replicas = total
 
         dqn_state = [
             cpu_m / 4000,
             mem_mi / 4096,
-            # resources["replicas"] / 5,
             obs.get("pending", 0) / 5,
             distance / 5,
+            min(1.0, replicas / 8),
         ]
-        
-        # 5) Policy/agent decision
+
+        # 4b) At target: no action taken, episode terminates (trace unchanged)
+        ready = obs.get("ready", 0)
+        pending = obs.get("pending", 0)
+        at_target = (ready == target and total == target and pending == 0)
+
         ACTION_SPACE = {
             0: {"type": "noop"},
             1: {"type": "bump_cpu_small", "step": "500m"},
@@ -239,7 +267,12 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         }
 
         action_idx = None
-        if agent_name == "greedy" and agent is not None:
+        if at_target:
+            action = ACTION_SPACE[0]
+            action_idx = 0
+            action_info = {"changed": False, "blocked": False}
+            logger.info("Target reached: skipping action (no modification)")
+        elif agent_name == "greedy" and agent is not None:
             action_idx = agent.act()
             action = ACTION_SPACE.get(action_idx, {"type": "noop"})
             logger.debug(f"Agent '{agent_name}' chose action index: {action_idx}")
@@ -251,8 +284,8 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             policy_fn = get_policy(agent_name)
             action = policy_fn(obs=obs, deploy=deploy)
             logger.debug(f"Policy '{agent_name}' chose action: {action}")
-        
-        # 6) Apply action to trace
+
+        # 6) Apply action to trace (when at_target, apply noop → trace unchanged)
         logger.debug(f"Applying action: {action}")
         out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
@@ -264,8 +297,18 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.debug(f"Copied output trace to {dest_out}")
         
         # 7) Compute reward (use reward_shaped for continuous RL feedback)
-        reward_fn = get_reward(reward_name)
-        r = reward_fn(obs=obs, target_total=target, T_s=duration, resources=resources)
+        rfn = reward_fn if reward_fn is not None else get_reward(
+            reward_name,
+            **(reward_kwargs or {}),
+        )
+        r = rfn(
+            obs=obs,
+            target_total=target,
+            T_s=duration,
+            resources=resources,
+            step_idx=step_idx,
+            action_info=action_info if action_info else {},
+        )
         logger.debug(f"Reward computed: {r}")
         
         # 8) write logs
@@ -284,6 +327,7 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
             "reward": float(r),
             "duration_s": duration,
             "seed": seed,
+            "at_target": at_target,
         }
         write_step_record(record)
         update_summary(record)
@@ -332,7 +376,7 @@ def main():
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
-        agent = Agent(AgentType.DQN, state_dim=4, n_actions=7)
+        agent = Agent(AgentType.DQN, state_dim=5, n_actions=7)
 
     result = one_step(
         trace_path=args.trace,
