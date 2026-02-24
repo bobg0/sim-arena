@@ -11,6 +11,7 @@ class AgentType(Enum):
     """Enumeration of available agent types."""
     EPSILON_GREEDY = "epsilon_greedy"
     DQN = "dqn"
+    RANDOM = "random"
 
 
 class BaseAgent(ABC):
@@ -60,11 +61,14 @@ class Agent:
         elif self.agent_type == AgentType.DQN:
             from .dqn import DQNAgent
             return DQNAgent(**kwargs)
+        elif self.agent_type == AgentType.RANDOM:
+            from .random import RandomAgent
+            return RandomAgent(**kwargs)
         else:
             raise ValueError(f"Unknown agent type: {self.agent_type}")
     
     def act(self, state: Any = None) -> int:
-        if self.agent_type == AgentType.EPSILON_GREEDY:
+        if self.agent_type in (AgentType.EPSILON_GREEDY, AgentType.RANDOM):
             return self._agent.act()
         else:
             if state is None:
