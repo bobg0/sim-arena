@@ -70,6 +70,7 @@ def main():
     parser.add_argument("--episodes", type=int, default=200, help="Number of episodes to train (default: 200)")
     parser.add_argument("--checkpoint-interval", type=int, default=10, help="Save checkpoint every N episodes")
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
+    parser.add_argument("--resume-folder", action="store_true", help="If --load is used, save new checkpoints in the loaded model's folder instead of creating a new one")
     parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from progress.json or checkpoint_epN)")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
     parser.add_argument("--log-to-terminal", action="store_true", help="Print all logs to terminal (default: redirect logs to checkpoint folder)")
@@ -105,16 +106,23 @@ def main():
     # Ensure the randomly generated seed is saved in the args namespace for logging
     args.seed = base_seed
 
-    # Setup checkpoint directory: reuse folder when resuming (--load), else create new
+    # Setup checkpoint directory: reuse folder when resuming ONLY IF --resume-folder is passed
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") # Added %M%S to prevent collisions on rapid restarts
+    
     if args.load:
         load_path = Path(args.load).resolve()
-        if load_path.exists():
-            checkpoint_folder = load_path.parent
-        else:
+        if not load_path.exists():
             raise SystemExit(f"--load path not found: {args.load}")
+            
+        if args.resume_folder:
+            checkpoint_folder = load_path.parent
+            logger.info(f"Resuming in existing folder: {checkpoint_folder}")
+        else:
+            checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
+            logger.info(f"Loading weights from {load_path}, but saving to NEW folder: {checkpoint_folder}")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H")
         checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
+        
     checkpoint_folder.mkdir(parents=True, exist_ok=True)
 
     log_file = None
@@ -161,7 +169,7 @@ def main():
     elif args.agent == "dqn":
         agent = Agent(
             AgentType.DQN,
-            state_dim=5,
+            state_dim=4,  # [current_pods, cpu_util, mem_util, target_pods]
             n_actions=args.Naction,
             learning_rate=args.lr,
             gamma=args.gamma,
@@ -195,17 +203,21 @@ def main():
             logger.info(f"Starting from episode {start_ep} (--start-episode override)")
     elif args.load:
         last_ep = None
-        if progress_path.exists():
+        # Look for progress in the LOAD folder so we can continue the episode count
+        load_dir = Path(args.load).resolve().parent
+        progress_path_to_check = load_dir / "progress.json"
+        
+        if progress_path_to_check.exists():
             try:
-                with open(progress_path) as f:
+                with open(progress_path_to_check) as f:
                     prog = json.load(f)
                 last_ep = prog.get("episode", 0)
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Could not read progress.json: {e}")
+                logger.warning(f"Could not read progress.json: {e}")                
         if last_ep is None:
-            # Fallback: infer from checkpoint_epN files (for runs before progress.json existed)
+            # Fallback: infer from checkpoint_epN files in the load directory
             pat = re.compile(rf"checkpoint_ep(\d+)\{re.escape(file_ext)}$")
-            for p in checkpoint_folder.iterdir():
+            for p in load_dir.iterdir():
                 m = pat.match(p.name)
                 if m:
                     n = int(m.group(1))
@@ -252,18 +264,11 @@ def main():
             if agent is not None:
                 # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
-<<<<<<< HEAD
                 agent.visualize(save_path=str(latest_plot_path))
                 agent.plot_learning_curve(save_path=str(latest_curve_path))
-=======
+                
                 with open(progress_path, "w") as f:
                     json.dump({"episode": ep}, f)
-                try:
-                    agent.visualize(save_path=str(latest_plot_path))
-                    agent.plot_learning_curve(save_path=str(latest_curve_path))
-                except Exception as e:
-                    logger.warning(f"Skipping visualization (install matplotlib for plots): {e}")
->>>>>>> 73b6857 (Training improvements: resume from checkpoint, progress.json, trace scenarios, trace exclusions)
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:
