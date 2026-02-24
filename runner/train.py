@@ -14,7 +14,7 @@ Sample usage:
     --episodes 50 --log-to-checkpoint
 
   # Single trace (legacy)
-  PYTHONPATH=. python runner/train.py --trace demo/trace-cpu-slight.msgpack --ns test-ns --target 3 --agent dqn
+  PYTHONPATH=. nohup python runner/train.py --trace demo/trace-0001.msgpack --ns test-ns --target 3 --agent dqn &
 
   # Resume from checkpoint (reuses checkpoint folder, resumes from last episode)
   PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--steps", type=int, default=200, help="Max steps per episode (default: 200)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (random if not specified)")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
-    parser.add_argument("--Naction", type=int, default=7, help="number of actions for the agent (default: 7, must match ACTION_SPACE in one_step.py)")
+    parser.add_argument("--Naction", type=int, default=4, help="number of actions for the agent (default: 4, don't use reduction actions)")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (default: shaped)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
@@ -72,7 +72,7 @@ def main():
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
     parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from progress.json or checkpoint_epN)")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
-    parser.add_argument("--log-to-checkpoint", action="store_true", help="Redirect logs to checkpoint folder (default: print to terminal)")
+    parser.add_argument("--log-to-terminal", action="store_true", help="Print all logs to terminal (default: redirect logs to checkpoint folder)")
 
     # DQN Hyperparameters (Optional)
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for DQN (default: 0.001)")
@@ -118,7 +118,7 @@ def main():
     checkpoint_folder.mkdir(parents=True, exist_ok=True)
 
     log_file = None
-    if args.log_to_checkpoint:
+    if not args.log_to_terminal:
         log_file_path = checkpoint_folder / "train.log"
         log_file = open(log_file_path, "a", buffering=1)
         print(f"Logs → {log_file_path}", flush=True)
