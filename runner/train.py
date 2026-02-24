@@ -71,7 +71,7 @@ def main():
     parser.add_argument("--checkpoint-interval", type=int, default=10, help="Save checkpoint every N episodes")
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
     parser.add_argument("--resume-folder", action="store_true", help="If --load is used, save new checkpoints in the loaded model's folder instead of creating a new one")
-    parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from progress.json or checkpoint_epN)")
+    parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from checkpoint_epN)")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
     parser.add_argument("--log-to-terminal", action="store_true", help="Print all logs to terminal (default: redirect logs to checkpoint folder)")
 
@@ -193,40 +193,38 @@ def main():
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
     latest_curve_path = checkpoint_folder / "learning_curve_latest.png"
-    progress_path = checkpoint_folder / "progress.json"
 
-    # When resuming, start from the episode after the last completed one
+   # When resuming, start from the episode after the last completed one
     start_ep = 1
     if args.start_episode is not None:
         start_ep = max(1, args.start_episode)
         if args.load:
             logger.info(f"Starting from episode {start_ep} (--start-episode override)")
     elif args.load:
-        last_ep = None
-        # Look for progress in the LOAD folder so we can continue the episode count
-        load_dir = Path(args.load).resolve().parent
-        progress_path_to_check = load_dir / "progress.json"
-        
-        if progress_path_to_check.exists():
+        last_ep = 0
+        if str(args.load).endswith(".pt"):
             try:
-                with open(progress_path_to_check) as f:
-                    prog = json.load(f)
-                last_ep = prog.get("episode", 0)
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Could not read progress.json: {e}")                
-        if last_ep is None:
-            # Fallback: infer from checkpoint_epN files in the load directory
-            pat = re.compile(rf"checkpoint_ep(\d+)\{re.escape(file_ext)}$")
-            for p in load_dir.iterdir():
-                m = pat.match(p.name)
-                if m:
-                    n = int(m.group(1))
-                    last_ep = n if last_ep is None else max(last_ep, n)
-            if last_ep is None:
-                last_ep = 0
+                import torch
+                # Load the checkpoint dict directly to read the episode history length
+                checkpoint_data = torch.load(args.load, map_location="cpu", weights_only=False)
+                last_ep = len(checkpoint_data.get('episode_reward_history', []))
+            except Exception as e:
+                logger.warning(f"Failed to extract episode history from checkpoint: {e}")
+        else:
+            # Basic fallback for non-PyTorch agents (like greedy JSON saves)
+            try:
+                with open(args.load, "r") as f:
+                    data = json.load(f)
+                    last_ep = len(data.get('episode_reward_history', []))
+            except Exception:
+                pass
+                
         if last_ep > 0:
             start_ep = last_ep + 1
-            logger.info(f"Resuming from episode {start_ep} (last completed: {last_ep})")
+            logger.info(f"Resuming from episode {start_ep} (read {last_ep} completed episodes directly from checkpoint)")
+        else:
+            logger.info("Resuming from episode 1 (could not find episode history in checkpoint)")
+
     if start_ep > args.episodes:
         logger.info(f"Training already complete (reached episode {start_ep - 1}). Nothing to do.")
         return 0
@@ -266,9 +264,6 @@ def main():
                 agent.save(str(latest_ckpt_path))
                 agent.visualize(save_path=str(latest_plot_path))
                 agent.plot_learning_curve(save_path=str(latest_curve_path))
-                
-                with open(progress_path, "w") as f:
-                    json.dump({"episode": ep}, f)
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:
