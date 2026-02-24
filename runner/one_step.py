@@ -53,9 +53,6 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 STEP_LOG = LOG_DIR / "step.jsonl"
 SUMMARY_LOG = LOG_DIR / "summary.json"
 
-# Kind node data path: files here appear at /data inside the kind node (isengard mounts this)
-DEFAULT_KIND_CLUSTER = "cluster"
-
 logger = logging.getLogger("one_step")
 
 
@@ -148,7 +145,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent=None, kind_cluster: str = DEFAULT_KIND_CLUSTER):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent=None):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -181,8 +178,8 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         logger.debug("pre_start hooks completed.")
 
         # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
-        # isengard mounts ~/.local/kind-node-data/<cluster> -> /data in the kind worker
-        node_data_dir = _get_node_data_dir(kind_cluster)
+        # isengard mounts ~/.local/kind-node-data/<namespace> -> /data in the kind worker
+        node_data_dir = _get_node_data_dir(namespace)
         node_data_dir.mkdir(parents=True, exist_ok=True)
         dest_trace = node_data_dir / trace_filename
         shutil.copy2(local_trace_path, dest_trace)
@@ -318,7 +315,6 @@ def main():
     parser.add_argument("--agent", type=str, default="greedy", help="Agent/policy: greedy, dqn, heuristic, scale_replicas, etc.")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
-    parser.add_argument("--kind-cluster", type=str, default="cluster", help="Kind cluster name (trace path: ~/.local/kind-node-data/<name>)")
 
     args = parser.parse_args()
     
@@ -344,7 +340,6 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
-        kind_cluster=args.kind_cluster,
     )
     return result["status"]
 
