@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .agent import BaseAgent
+from .agent import BaseAgent, ACTION_NAMES
 
 
 ###############################################################################
@@ -274,8 +274,9 @@ class DQNAgent(BaseAgent):
         self.current_episode_reward = 0.0
     
     def visualize(self, save_path=None):
-        """Visualize the DQN Q-values for a sweep of representative states across 4 subplots."""
+        """Visualize DQN: Q-value heatmaps, action bar chart, and epsilon decay."""
         import matplotlib.pyplot as plt
+        import numpy as np
 
         # Define configurations for the 4 subplots (Low/High CPU and Low/High Mem)
         configs = [
@@ -289,6 +290,8 @@ class DQNAgent(BaseAgent):
         distance_sweep = list(range(5))  # Sweeps distances 0 through 4
         # replicas/8: 0.125 for 1, 0.25 for 2, 0.375 for 3 (target)
         replicas_norm = 0.375  # target=3
+
+        action_labels = ACTION_NAMES[:self.n_actions] if self.n_actions <= len(ACTION_NAMES) else [f"A{i}" for i in range(self.n_actions)]
 
         # Set to eval mode for visualization
         self.q_net.eval()
@@ -318,47 +321,64 @@ class DQNAgent(BaseAgent):
         else:
             threshold = (global_max + global_min) / 2
 
-        # --- STEP 2: Plot the heatmaps using the global scale ---
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        fig.suptitle('DQN Q-Value Heatmaps: Resource Combinations (Pending: 0)', fontsize=16)
-        axes = axes.flatten()
+        # Layout: 2x2 heatmaps, bar chart, epsilon (4 rows)
+        fig = plt.figure(figsize=(14, 14))
+        gs = fig.add_gridspec(4, 2, height_ratios=[1, 1, 0.6, 0.5], hspace=0.4, wspace=0.3)
+        fig.suptitle('DQN Agent Visualization', fontsize=16)
 
-        im = None # Keep track of the last image for the global colorbar
-
+        im = None
         for idx, (config, q_values) in enumerate(zip(configs, all_q_values)):
-            ax = axes[idx]
-            
-            # Pass vmin and vmax to lock the color scale across all subplots
+            ax = fig.add_subplot(gs[idx // 2, idx % 2])
             im = ax.imshow(q_values, aspect='auto', cmap='viridis', vmin=global_min, vmax=global_max)
-            
-            # Label axes
             ax.set_xticks(range(self.n_actions))
-            ax.set_xticklabels([f"Action {i}" for i in range(self.n_actions)])
+            ax.set_xticklabels(action_labels, rotation=45, ha='right')
             ax.set_yticks(range(len(distance_sweep)))
             ax.set_yticklabels([f"Dist={r}" for r in distance_sweep])
-            
-            # Annotate text on the heatmap
             for i in range(len(distance_sweep)):
                 for j in range(self.n_actions):
                     val = q_values[i, j].item()
                     color = "black" if val > threshold else "white"
                     ax.text(j, i, f"{val:.2f}", ha="center", va="center", color=color)
-                    
-            ax.set_xlabel('Actions')
-            ax.set_ylabel('Distance')
+            ax.set_xlabel('Action')
+            ax.set_ylabel('Distance to target')
             ax.set_title(f"{config['title']}\n(CPU: {config['cpu']}m / Mem: {config['mem']}Mi)")
 
-        # Restore training mode
+        # Row 2: Q-value bar chart for typical state (distance=2, mid CPU/mem)
+        typical_state = [1000 / 4000, 768 / 4096, 0, 2 / 5, replicas_norm]  # distance=2
+        with torch.no_grad():
+            typical_tensor = torch.tensor([typical_state], dtype=torch.float32, device=self.device)
+            typical_q = self.q_net(typical_tensor).cpu().numpy().flatten()
+        ax_bar = fig.add_subplot(gs[2, :])
+        colors = ['#2ecc71' if i == np.argmax(typical_q) else '#3498db' for i in range(self.n_actions)]
+        ax_bar.bar(range(self.n_actions), typical_q, color=colors, edgecolor='black')
+        ax_bar.set_xticks(range(self.n_actions))
+        ax_bar.set_xticklabels(action_labels, rotation=45, ha='right')
+        ax_bar.set_ylabel('Q-Value')
+        ax_bar.set_title('Q-Values for Typical State (CPU: 1000m, Mem: 768Mi, Distance: 2) — best action in green')
+        ax_bar.axhline(y=0, color='gray', linestyle='-', linewidth=0.5)
+        ax_bar.grid(axis='y', alpha=0.3)
+
+        # Row 3: Epsilon decay over training
+        ax_eps = fig.add_subplot(gs[3, :])
+        steps_range = np.arange(0, max(self.total_steps + 100, self.eps_decay_steps + 100))
+        eps_vals = np.where(steps_range >= self.eps_decay_steps, self.eps_end,
+                            self.eps_start - (self.eps_start - self.eps_end) * (steps_range / self.eps_decay_steps))
+        ax_eps.plot(steps_range, eps_vals, color='purple', alpha=0.8, label='Epsilon schedule')
+        ax_eps.axvline(x=self.total_steps, color='red', linestyle='--', alpha=0.7, label=f'Current step ({self.total_steps})')
+        ax_eps.axvline(x=self.eps_decay_steps, color='orange', linestyle=':', alpha=0.7, label=f'Decay end ({self.eps_decay_steps})')
+        ax_eps.set_xlabel('Training Steps')
+        ax_eps.set_ylabel('Epsilon')
+        ax_eps.set_title('Exploration vs Exploitation (epsilon-greedy)')
+        ax_eps.legend(loc='upper right', fontsize=8)
+        ax_eps.set_xlim(0, max(self.total_steps, self.eps_decay_steps) + 50)
+        ax_eps.grid(alpha=0.3)
+
+        # Colorbar for heatmaps
+        cbar_ax = fig.add_axes([0.92, 0.42, 0.02, 0.45])
+        fig.colorbar(im, cax=cbar_ax, label='Q-Value')
+
         self.q_net.train()
 
-        # Add a single global colorbar for the entire figure
-        fig.subplots_adjust(right=0.88)
-        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-        fig.colorbar(im, cax=cbar_ax, label='Estimated Q-Value')
-
-        # Adjust layout
-        plt.subplots_adjust(top=0.88, bottom=0.1, left=0.1, right=0.9, hspace=0.3, wspace=0.2)
-        
         if save_path:
             plt.savefig(save_path)
             print(f"Saved DQN visualization to {save_path}")
@@ -367,32 +387,45 @@ class DQNAgent(BaseAgent):
         plt.close()
 
     def plot_learning_curve(self, save_path=None):
-        """Plot the true episodic returns and moving average of loss."""
+        """Plot episodic returns, step rewards, and loss."""
         import matplotlib.pyplot as plt
         import numpy as np
 
-        fig, axes = plt.subplots(2, 1, figsize=(10, 8))
+        fig, axes = plt.subplots(3, 1, figsize=(10, 10))
         
-        # Plot True Episode Rewards
+        # Plot 1: Episode returns
         ax = axes[0]
         if len(self.episode_reward_history) > 0:
             ax.plot(self.episode_reward_history, marker='o', markersize=4, alpha=0.4, color='blue', label='Total Episode Return')
-            
-            # 10-Episode Moving Average
             if len(self.episode_reward_history) >= 10:
                 window = 10
                 rolling_rewards = np.convolve(self.episode_reward_history, np.ones(window)/window, mode='valid')
                 ax.plot(np.arange(window-1, len(self.episode_reward_history)), rolling_rewards, color='darkblue', linewidth=2, label=f'{window}-Ep Moving Avg')
-            
-            ax.set_title('Episodic Return (Variable Length)')
+            ax.set_title('Episodic Return (Sum of Rewards per Episode)')
             ax.set_xlabel('Episodes')
-            ax.set_ylabel('Sum of Rewards')
+            ax.set_ylabel('Return')
             ax.legend()
         else:
             ax.set_title('Episodic Return (No Episode Data Yet)')
+        ax.grid(alpha=0.3)
 
-        # Plot Loss (Still step-based, so a standard rolling average works well here)
+        # Plot 2: Step rewards (per-step feedback)
         ax = axes[1]
+        if len(self.reward_history) > 0:
+            window = min(100, len(self.reward_history))
+            rolling = np.convolve(self.reward_history, np.ones(window)/window, mode='valid')
+            ax.plot(self.reward_history, alpha=0.3, color='green', label='Step Reward')
+            ax.plot(np.arange(window-1, len(self.reward_history)), rolling, color='darkgreen', linewidth=2, label=f'{window}-Step Moving Avg')
+            ax.set_title('Step Rewards (Per-Step Feedback)')
+            ax.set_xlabel('Training Steps')
+            ax.set_ylabel('Reward')
+            ax.legend()
+        else:
+            ax.set_title('Step Rewards (No Data Yet)')
+        ax.grid(alpha=0.3)
+
+        # Plot 3: Loss
+        ax = axes[2]
         if len(self.loss_history) > 0:
             window = min(100, len(self.loss_history))
             rolling_loss = np.convolve(self.loss_history, np.ones(window)/window, mode='valid')
@@ -403,6 +436,7 @@ class DQNAgent(BaseAgent):
             ax.legend()
         else:
             ax.set_title('DQN Loss Curve (No Data)')
+        ax.grid(alpha=0.3)
 
         plt.tight_layout()
         if save_path:
