@@ -118,6 +118,53 @@ def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict) -> float
     final_reward = max(-1.0, min(1.0, reward))
     return final_reward
 
+def reward_cost_aware(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
+    """
+    Cost-aware reward: penalizes over-allocation even when the deployment is healthy.
+    
+    Teaches the agent to fix problems with minimal resources, not just "any fix works."
+    - Success bonus when ready==target, pending==0
+    - Cost penalty: higher CPU/memory usage and excess replicas reduce the reward
+    - When not healthy: uses shaped-style penalties for distance, pending, etc.
+    
+    Returns a float between -1.0 and 1.0
+    """
+    ready = obs.get("ready", 0)
+    pending = obs.get("pending", 0)
+    total = obs.get("total", 0)
+    
+    # Perfect health: exactly at target with no pending pods
+    if ready == target_total and pending == 0 and total == target_total:
+        # Apply cost penalty for over-allocation (total cluster usage)
+        cpu_per_pod_m = parse_cpu_to_millicores(str(resources.get("cpu", "0m")))
+        mem_per_pod_b = parse_memory_to_bytes(str(resources.get("memory", "0Mi")))
+        replicas = int(resources.get("replicas", 0))
+        total_cpu_m = cpu_per_pod_m * replicas
+        total_mem_b = mem_per_pod_b * replicas
+        
+        # Normalize to node capacity (16 CPUs, 32 GB)
+        cpu_ratio = min(1.0, total_cpu_m / MAX_CPU_MILLICORES)
+        mem_ratio = min(1.0, total_mem_b / MAX_MEMORY_BYTES)
+        replica_waste = max(0, replicas - target_total)
+        
+        # Base success reward, minus cost penalties
+        cost_penalty = 0.08 * cpu_ratio + 0.08 * mem_ratio + 0.12 * replica_waste
+        return max(0.0, 1.0 - cost_penalty)
+    
+    # Not healthy: use shaped-style penalties
+    reward = 0.0
+    distance = abs(ready - target_total)
+    reward += -0.1 * distance
+    if pending > 0:
+        reward += -0.05 * pending
+    if total > target_total:
+        reward += -0.15 * (total - target_total)
+    elif total < target_total:
+        reward += -0.08 * (target_total - total)
+    
+    return max(-1.0, min(1.0, reward))
+
+
 def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -> float:
     """
     Penalize exceeding max resource limits.
@@ -143,6 +190,7 @@ def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict) -
 REWARD_REGISTRY: Dict[str, Callable] = {
     "base": reward_base,
     "shaped": reward_shaped,
+    "cost_aware": reward_cost_aware,
     "max_punish": reward_max_punish,
     "rui": reward_rui,
 }

@@ -53,7 +53,15 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 STEP_LOG = LOG_DIR / "step.jsonl"
 SUMMARY_LOG = LOG_DIR / "summary.json"
 
+# Kind node data path: files here appear at /data inside the kind node (isengard mounts this)
+DEFAULT_KIND_CLUSTER = "cluster"
+
 logger = logging.getLogger("one_step")
+
+
+def _get_node_data_dir(kind_cluster: str) -> Path:
+    """Path where trace files must be placed for SimKube to read them at file:///data/"""
+    return Path.home() / ".local" / "kind-node-data" / kind_cluster
 
 # ---- Helper function to extract current resource state from trace ----
 def _extract_current_state(trace: list, deploy: str) -> dict:
@@ -140,7 +148,7 @@ def update_summary(record: dict) -> None:
         json.dump(summary, f, indent=2)
  
 # ---- Main orchestration ----
-def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent = None):
+def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration: int, seed: int = 0, agent_name: str = "heuristic", reward_name: str = "shaped", agent=None, kind_cluster: str = DEFAULT_KIND_CLUSTER):
     random.seed(seed)
     
     timestamp = datetime.now(timezone.utc).isoformat() 
@@ -172,26 +180,13 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         run_hooks("pre_start", virtual_namespace, deploy=deploy)
         logger.debug("pre_start hooks completed.")
 
-        # 1.5) Copy the input trace to ALL kind nodes so simkube can read it
-        import subprocess
-        try:
-            # Dynamically get all nodes for this kind cluster
-            nodes_out = subprocess.run(
-                ["kind", "get", "nodes", "--name", namespace], 
-                check=True, capture_output=True, text=True
-            )
-            kind_nodes = [n for n in nodes_out.stdout.strip().split('\n') if n]
-        except Exception:
-            # Fallback if the command fails
-            kind_nodes = [f"{namespace}-control-plane", f"{namespace}-worker"]
-
-        logger.debug(f"Ensuring input trace {trace_filename} is inside all nodes: {kind_nodes}...")
-        for node in kind_nodes:
-            try:
-                subprocess.run(["docker", "exec", node, "mkdir", "-p", "/data"], check=True, capture_output=True)
-                subprocess.run(["docker", "cp", local_trace_path, f"{node}:/data/{trace_filename}"], check=True, capture_output=True)
-            except Exception as e:
-                logger.warning(f"Failed to copy input trace to {node}: {e}")
+        # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
+        # isengard mounts ~/.local/kind-node-data/<cluster> -> /data in the kind worker
+        node_data_dir = _get_node_data_dir(kind_cluster)
+        node_data_dir.mkdir(parents=True, exist_ok=True)
+        dest_trace = node_data_dir / trace_filename
+        shutil.copy2(local_trace_path, dest_trace)
+        logger.debug(f"Copied input trace to {dest_trace} (accessible at file:///data/{trace_filename})")
         
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
@@ -262,16 +257,11 @@ def one_step(trace_path: str, namespace: str, deploy: str, target: int, duration
         out_trace_path, action_info = apply_action(local_trace_path, action, deploy, out_trace_path)
         trace_changed = action_info.get("changed", False)
         
-        # 6b) Copy output trace to ALL kind nodes
-        logger.debug(f"Ensuring /data exists and copying trace to all nodes: {kind_nodes}...")
-        for node in kind_nodes:
-            try:
-                target_file = f"/data/{Path(out_trace_path).name}"
-                subprocess.run(["docker", "exec", node, "mkdir", "-p", "/data"], check=True, capture_output=True)
-                subprocess.run(["docker", "cp", out_trace_path, f"{node}:{target_file}"], check=True, capture_output=True)
-                logger.debug(f"Successfully copied trace to {node}:{target_file}")
-            except Exception as e:
-                logger.error(f"Failed to copy trace to {node}: {e}")
+        # 6b) Copy output trace to the kind node data path (for next step)
+        out_trace_name = Path(out_trace_path).name
+        dest_out = node_data_dir / out_trace_name
+        shutil.copy2(out_trace_path, dest_out)
+        logger.debug(f"Copied output trace to {dest_out}")
         
         # 7) Compute reward (use reward_shaped for continuous RL feedback)
         reward_fn = get_reward(reward_name)
@@ -328,6 +318,7 @@ def main():
     parser.add_argument("--agent", type=str, default="greedy", help="Agent/policy: greedy, dqn, heuristic, scale_replicas, etc.")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
+    parser.add_argument("--kind-cluster", type=str, default="cluster", help="Kind cluster name (trace path: ~/.local/kind-node-data/<name>)")
 
     args = parser.parse_args()
     
@@ -353,6 +344,7 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
+        kind_cluster=args.kind_cluster,
     )
     return result["status"]
 

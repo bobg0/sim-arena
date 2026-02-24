@@ -526,8 +526,22 @@ cat runs/step.jsonl
 
 ```bash
 --reward base        # Binary (0 or 1)
---reward shaped      # Continuous (−1 to 1) with distance penalties
---reward max_punish  # Base + penalties for over-allocation
+--reward shaped      # Continuous (−1 to 1) with distance-based penalties
+--reward cost_aware  # Penalizes over-allocation; encourages minimal-resource fixes
+--reward max_punish  # Base + penalties for exceeding resource limits
+```
+
+### Run Multiple Episodes
+
+```bash
+python runner/multi_step.py \
+  --trace demo/traces/trace-0001.msgpack \
+  --ns test-ns \
+  --deploy web \
+  --target 3 \
+  --duration 60 \
+  --steps 10 \
+  --reward shaped
 ```
 
 ---

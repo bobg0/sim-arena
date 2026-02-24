@@ -5,34 +5,31 @@ Overarching training loop that runs multiple episodes of the simulation,
 manages agent persistence, and automatically saves checkpoints.
 
 Sample usage:
-  # Train a DQN agent for 50 episodes in the background.
-  # (stdout and stderr will automatically save to train.log inside the new checkpoint folder)
-  nohup python runner/train.py \
-    --trace demo/trace-0001.msgpack \
-    --ns virtual-default \
-    --deploy web \
-    --target 3 \
-    --agent dqn \
-    --episodes 50 &
+  # Train on 6 trace types (random per episode), logs to terminal
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --deploy web --target 3 \\
+    --agent dqn --episodes 50 --steps 10 --duration 60
 
-  # Resume training from a specific checkpoint in the background
-  nohup python runner/train.py \
-    --trace demo/trace-0001.msgpack \
-    --ns virtual-default \
-    --target 3 \
-    --agent dqn \
-    --load checkpoints/dqn_20260218_22/checkpoint_ep20.pt \
-    --episodes 50 &
+  # Redirect logs to checkpoint folder (for background/long runs)
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
+    --episodes 50 --log-to-checkpoint
+
+  # Single trace (legacy)
+  PYTHONPATH=. python runner/train.py --trace demo/trace-cpu-slight.msgpack --ns test-ns --target 3 --agent dqn
+
+  # Resume from checkpoint (reuses checkpoint folder, resumes from last episode)
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
+    --load checkpoints/dqn_20260221_20/checkpoint_latest.pt --episodes 50
 
 Important Notes:
 Before running, ensure you run the following commands to clean up any ghost simulations:
     pkill -f "train.py.*--ns <your-namespace>"
     kubectl delete simulations.simkube.io --all -n <your-namespace>
-
 """
 
 import sys
 import os
+import json
+import re
 import argparse
 import logging
 import time
@@ -55,7 +52,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run continuous RL training over multiple episodes.")
     
     # Required arguments
-    parser.add_argument("--trace", required=True, help="Initial trace path (reused at the start of each episode)")
+    parser.add_argument("--trace", required=True, help="Trace path: single .msgpack file, or directory of traces (randomly sampled per episode)")
     parser.add_argument("--ns", "--namespace", dest="namespace", required=True, help="Namespace")
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     
@@ -65,7 +62,7 @@ def main():
     parser.add_argument("--steps", type=int, default=200, help="Max steps per episode (default: 200)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (random if not specified)")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
-    parser.add_argument("--Naction", type=int, default=4, help="number of actions for the agent (default: 4)")
+    parser.add_argument("--Naction", type=int, default=7, help="number of actions for the agent (default: 7, must match ACTION_SPACE in one_step.py)")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (default: shaped)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
@@ -73,7 +70,9 @@ def main():
     parser.add_argument("--episodes", type=int, default=200, help="Number of episodes to train (default: 200)")
     parser.add_argument("--checkpoint-interval", type=int, default=10, help="Save checkpoint every N episodes")
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
+    parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from progress.json or checkpoint_epN)")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
+    parser.add_argument("--log-to-checkpoint", action="store_true", help="Redirect logs to checkpoint folder (default: print to terminal)")
 
     # DQN Hyperparameters (Optional)
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for DQN (default: 0.001)")
@@ -87,30 +86,46 @@ def main():
 
     args = parser.parse_args()
 
+    # Traces with incompatible SimKube v2 format (cause 404 "web" deployment not found)
+    TRACE_EXCLUDE = {"trace-normalized.msgpack"}
+
+    # Resolve trace path(s): dir -> list of .msgpack, file -> single-item list
+    trace_path_arg = Path(args.trace)
+    if trace_path_arg.is_dir():
+        trace_paths = sorted(trace_path_arg.glob("*.msgpack"))
+        trace_paths = [p for p in trace_paths if p.name not in TRACE_EXCLUDE]
+        if not trace_paths:
+            raise SystemExit(f"No .msgpack traces found in {trace_path_arg}")
+        trace_paths = [str(p) for p in trace_paths]
+    else:
+        trace_paths = [args.trace]
+
     # Resolve reproducibility
     base_seed = args.seed if args.seed is not None else random.randint(0, 999999)
     # Ensure the randomly generated seed is saved in the args namespace for logging
     args.seed = base_seed
 
-    # Setup checkpoint directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H")
-    checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
+    # Setup checkpoint directory: reuse folder when resuming (--load), else create new
+    if args.load:
+        load_path = Path(args.load).resolve()
+        if load_path.exists():
+            checkpoint_folder = load_path.parent
+        else:
+            raise SystemExit(f"--load path not found: {args.load}")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H")
+        checkpoint_folder = project_root / "checkpoints" / f"{args.agent}_{timestamp}"
     checkpoint_folder.mkdir(parents=True, exist_ok=True)
 
-
-    # Output Redirection & Logging Setup
-    log_file_path = checkpoint_folder / "train.log"
-    
-    # Open the log file and redirect stdout and stderr
-    log_file = open(log_file_path, "a", buffering=1)  # line-buffered
-    
-    # Flush Python buffers before redirecting
-    sys.stdout.flush()
-    sys.stderr.flush()
-
-    # Force OS file descriptors 1 (stdout) and 2 (stderr) to write to our log file
-    os.dup2(log_file.fileno(), sys.stdout.fileno())
-    os.dup2(log_file.fileno(), sys.stderr.fileno())
+    log_file = None
+    if args.log_to_checkpoint:
+        log_file_path = checkpoint_folder / "train.log"
+        log_file = open(log_file_path, "a", buffering=1)
+        print(f"Logs → {log_file_path}", flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(log_file.fileno(), sys.stdout.fileno())
+        os.dup2(log_file.fileno(), sys.stderr.fileno())
 
     # Configure root logger to output to the redirected sys.stdout
     logging.basicConfig(
@@ -120,7 +135,8 @@ def main():
     )
 
     logger.info(f"Using base random seed: {base_seed}")
-    logger.info(f"Checkpoints and logs will be saved to: {checkpoint_folder}")
+    logger.info(f"Checkpoints: {checkpoint_folder}")
+    logger.info(f"Trace pool: {len(trace_paths)} trace(s) — random per episode")
 
     # Save the exact command and all parsed args
     command_log_path = checkpoint_folder / "command.txt"
@@ -130,17 +146,22 @@ def main():
         f.write("=== Parsed Arguments ===\n")
         for key, value in vars(args).items():
             f.write(f"{key}: {value}\n")
+        f.write(f"\nTrace pool ({len(trace_paths)}):\n")
+        for p in trace_paths:
+            f.write(f"  - {p}\n")
 
     # Initialize the agent
     agent = None
     file_ext = ".json"
+    # Must match ACTION_SPACE in one_step.py (7 actions: noop, bump_cpu, bump_mem, scale_up, reduce_cpu, reduce_mem, scale_down)
+    n_actions = 7
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=args.Naction, epsilon=0.1)
         file_ext = ".json"
     elif args.agent == "dqn":
         agent = Agent(
-            AgentType.DQN, 
-            state_dim=4, 
+            AgentType.DQN,
+            state_dim=5,
             n_actions=args.Naction,
             learning_rate=args.lr,
             gamma=args.gamma,
@@ -164,22 +185,55 @@ def main():
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
     latest_curve_path = checkpoint_folder / "learning_curve_latest.png"
+    progress_path = checkpoint_folder / "progress.json"
+
+    # When resuming, start from the episode after the last completed one
+    start_ep = 1
+    if args.start_episode is not None:
+        start_ep = max(1, args.start_episode)
+        if args.load:
+            logger.info(f"Starting from episode {start_ep} (--start-episode override)")
+    elif args.load:
+        last_ep = None
+        if progress_path.exists():
+            try:
+                with open(progress_path) as f:
+                    prog = json.load(f)
+                last_ep = prog.get("episode", 0)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Could not read progress.json: {e}")
+        if last_ep is None:
+            # Fallback: infer from checkpoint_epN files (for runs before progress.json existed)
+            pat = re.compile(rf"checkpoint_ep(\d+)\{re.escape(file_ext)}$")
+            for p in checkpoint_folder.iterdir():
+                m = pat.match(p.name)
+                if m:
+                    n = int(m.group(1))
+                    last_ep = n if last_ep is None else max(last_ep, n)
+            if last_ep is None:
+                last_ep = 0
+        if last_ep > 0:
+            start_ep = last_ep + 1
+            logger.info(f"Resuming from episode {start_ep} (last completed: {last_ep})")
+    if start_ep > args.episodes:
+        logger.info(f"Training already complete (reached episode {start_ep - 1}). Nothing to do.")
+        return 0
 
     # Training Loop
     start_time = time.time()
     
     try:
-        for ep in range(1, args.episodes + 1):
-            logger.info("=" * 60)
-            logger.info(f"🚀 Starting Episode {ep}/{args.episodes}")
-            logger.info("=" * 60)
-            
-            # Ensure distinct but reproducible seed for each episode
+        for ep in range(start_ep, args.episodes + 1):
             ep_seed = base_seed + ep * 1000
+            trace_path = random.choice(trace_paths) if len(trace_paths) > 1 else trace_paths[0]
+            
+            logger.info("=" * 60)
+            logger.info(f"🚀 Episode {ep}/{args.episodes} | trace: {Path(trace_path).name}")
+            logger.info("=" * 60)
             
             # Run the episode
             result = run_episode(
-                trace_path=args.trace,
+                trace_path=trace_path,
                 namespace=args.namespace,
                 deploy=args.deploy,
                 target=args.target,
@@ -198,8 +252,18 @@ def main():
             if agent is not None:
                 # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
+<<<<<<< HEAD
                 agent.visualize(save_path=str(latest_plot_path))
                 agent.plot_learning_curve(save_path=str(latest_curve_path))
+=======
+                with open(progress_path, "w") as f:
+                    json.dump({"episode": ep}, f)
+                try:
+                    agent.visualize(save_path=str(latest_plot_path))
+                    agent.plot_learning_curve(save_path=str(latest_curve_path))
+                except Exception as e:
+                    logger.warning(f"Skipping visualization (install matplotlib for plots): {e}")
+>>>>>>> 73b6857 (Training improvements: resume from checkpoint, progress.json, trace scenarios, trace exclusions)
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:
@@ -219,8 +283,11 @@ def main():
         if agent is not None:
             # Ensure the latest is up to date in case of interruption
             agent.save(str(latest_ckpt_path))
-            agent.visualize(save_path=str(latest_plot_path))
-            agent.plot_learning_curve(save_path=str(latest_curve_path))
+            try:
+                agent.visualize(save_path=str(latest_plot_path))
+                agent.plot_learning_curve(save_path=str(latest_curve_path))
+            except Exception as e:
+                logger.warning(f"Skipping visualization: {e}")
                 
             logger.info(f"💾 Ensured latest training checkpoint: {latest_ckpt_path}")
             
@@ -231,8 +298,8 @@ def main():
         total_time = time.time() - start_time
         logger.info(f"🏁 Training process ended! Total time: {total_time / 60:.2f} minutes.")
         
-        # Close the log file explicitly at the end
-        log_file.close()
+        if log_file is not None:
+            log_file.close()
         
     return 0
 
