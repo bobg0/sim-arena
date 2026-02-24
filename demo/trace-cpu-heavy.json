@@ -1,0 +1,67 @@
+{
+  "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "metadata": {
+    "description": "CPU heavy: 3 replicas x 20000m = 60 CPUs (far over 16 CPU KWOK node limit)",
+    "scenario": {
+      "failure_mode": "cpu_only",
+      "severity": "heavy",
+      "initial_state": "3 pods, 20000m CPU each (60 CPUs total), far over node capacity",
+      "target": "3 pods ready",
+      "expected_behavior": "Agent should reduce CPU multiple times to get under 16 CPU/node limit"
+    }
+  },
+  "events": [
+    {
+      "ts": 1730390400,
+      "deleted_objs": [],
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "replicas": 3,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "20000m",
+                        "memory": "2Gi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

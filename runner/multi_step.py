@@ -49,7 +49,8 @@ def run_episode(
     seed: int = 0,
     agent_name: str = "greedy",
     reward_name: str = "shaped",
-    agent = None
+    agent=None,
+    kind_cluster: str = "cluster",
 ):
     """
     Run a multi-step episode.
@@ -79,7 +80,8 @@ def run_episode(
             seed=seed + step_idx,
             agent_name=agent_name,
             reward_name=reward_name,
-            agent=agent
+            agent=agent,
+            kind_cluster=kind_cluster,
         )
 
         if result["status"] != 0:
@@ -155,6 +157,7 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
     parser.add_argument("--load", type=str, default=None, help="Path to load an existing agent checkpoint")
     parser.add_argument("--save", type=str, default=None, help="Path to save the agent checkpoint after the episode")
+    parser.add_argument("--kind-cluster", type=str, default="cluster", help="Kind cluster name (for trace path ~/.local/kind-node-data/<name>)")
 
     args = parser.parse_args()
 
@@ -186,6 +189,7 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
+        kind_cluster=args.kind_cluster,
     )
 
     if agent is not None and args.save:

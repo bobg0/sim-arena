@@ -1,0 +1,67 @@
+{
+  "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "metadata": {
+    "description": "Memory slight: 3 x 12Gi = 36Gi (exceeds 32Gi KWOK node)",
+    "scenario": {
+      "failure_mode": "memory_only",
+      "severity": "slight",
+      "initial_state": "3 pods, 12Gi each (36Gi total), exceeds 32Gi/node",
+      "target": "3 pods ready",
+      "expected_behavior": "Agent should reduce memory to get under 32Gi/node limit"
+    }
+  },
+  "events": [
+    {
+      "ts": 1730390400,
+      "deleted_objs": [],
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "replicas": 3,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "500m",
+                        "memory": "12Gi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

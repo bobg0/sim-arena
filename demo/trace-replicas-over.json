@@ -1,0 +1,67 @@
+{
+  "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "metadata": {
+    "description": "Replicas over: 5 replicas when target is 3 (scale_down)",
+    "scenario": {
+      "failure_mode": "replicas_only",
+      "severity": "slight",
+      "initial_state": "5 pods (all schedule), target is 3",
+      "target": "3 pods ready",
+      "expected_behavior": "Agent should scale_down_replicas to 3"
+    }
+  },
+  "events": [
+    {
+      "ts": 1730390400,
+      "deleted_objs": [],
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "replicas": 5,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "500m",
+                        "memory": "512Mi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
