@@ -100,7 +100,7 @@ def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs
 
     # 2. Pending pods penalty (inefficiency - pods not ready yet)
     if pending > 0:
-        pending_penalty = -0.02 * pending
+        pending_penalty = -0.02 * pending / target_total
         reward += pending_penalty
     
     # 3. Resource waste penalty (too many replicas)
@@ -112,7 +112,7 @@ def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs
     # 4. Under-provisioned penalty (not enough replicas)
     elif total < target_total:
         undershoot = target_total - total
-        undershoot_penalty = -0.03 * undershoot
+        undershoot_penalty = -0.03 * undershoot / target_total
         reward += undershoot_penalty
     
     # Clamp reward between -1.0 and 1.0

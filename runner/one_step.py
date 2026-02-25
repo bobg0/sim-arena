@@ -250,13 +250,6 @@ def one_step(
         # 4) observe cluster state
         logger.debug(f"Observing cluster state in {virtual_namespace}...")
         obs = None
-        
-        # Smart Polling: 16-second grace period for the Kubernetes API to sync
-        for _ in range(8): 
-            obs = observe(virtual_namespace, deploy)
-            if obs and obs.get("total", 0) > 0:
-                break
-            time.sleep(2)
 
         if obs_noise_scale > 0:
             obs = add_obs_noise(obs, obs_noise_scale, rng=random)

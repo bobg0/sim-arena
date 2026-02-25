@@ -266,12 +266,16 @@ class DQNAgent(BaseAgent):
             
         print(f"Loaded DQN agent from {path} (steps={self.total_steps})")
 
-    def reset(self):
-        """Reset agent (useful for multi-environment training)."""
+    def reset(self, reset_steps=True):
+        """Reset agent (useful for multi-environment training or transfer learning)."""
         self.reward_history = []
         self.loss_history = []
         self.episode_reward_history = []
         self.current_episode_reward = 0.0
+        
+        # ADD THIS: Reset total steps to restart epsilon decay for the new environment
+        if reset_steps:
+            self.total_steps = 0
     
     def visualize(self, save_path=None):
         """Visualize DQN: Q-value heatmaps, action bar chart, and epsilon decay."""
