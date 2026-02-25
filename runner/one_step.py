@@ -56,6 +56,38 @@ SUMMARY_LOG = LOG_DIR / "summary.json"
 
 logger = logging.getLogger("one_step")
 
+def wait_for_driver_ready(sim_name: str, timeout: int = 60) -> bool:
+    """Polls Kubernetes until the SimKube driver pod is actively Running."""
+    import subprocess
+
+    job_label = f"job-name=sk-{sim_name}-driver"
+    logger.info(f"Waiting for driver pod ({job_label}) to start to eliminate cluster lag...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            # -A searches all namespaces so we definitely find it
+            cmd = [
+                "kubectl", "get", "pods", "-A", 
+                "-l", job_label, 
+                "-o", "jsonpath={.items[0].status.phase}"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            phase = result.stdout.strip()
+            
+            if phase == "Running":
+                elapsed = time.time() - start_time
+                logger.debug(f"Driver pod is Running! (Scheduling lag handled: {elapsed:.1f}s)")
+                return True
+            elif phase in ["Succeeded", "Failed"]:
+                return True
+        except Exception:
+            pass # Ignore temporary kubectl failures
+        
+        time.sleep(2)
+        
+    logger.warning(f"Driver pod didn't enter Running state within {timeout}s buffer. Proceeding anyway.")
+    return False
 
 def _get_node_data_dir(kind_cluster: str) -> Path:
     """Path where trace files must be placed for SimKube to read them at file:///data/"""
@@ -207,6 +239,9 @@ def one_step(
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
         sim_uid = create_simulation(name=sim_name, trace_path=cluster_trace_path, duration_s=duration, namespace=namespace)
+
+        # 2.5) Synchronize timer with the driver pod
+        wait_for_driver_ready(sim_name)
         
         # 3) wait fixed
         logger.info(f"Waiting fixed duration: {duration}s ...")
@@ -214,7 +249,15 @@ def one_step(
         
         # 4) observe cluster state
         logger.debug(f"Observing cluster state in {virtual_namespace}...")
-        obs = observe(virtual_namespace, deploy)
+        obs = None
+        
+        # Smart Polling: 16-second grace period for the Kubernetes API to sync
+        for _ in range(8): 
+            obs = observe(virtual_namespace, deploy)
+            if obs and obs.get("total", 0) > 0:
+                break
+            time.sleep(2)
+
         if obs_noise_scale > 0:
             obs = add_obs_noise(obs, obs_noise_scale, rng=random)
         resources = current_requests(virtual_namespace, deploy)
