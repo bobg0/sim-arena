@@ -69,6 +69,7 @@ def main():
     # Training & Checkpointing arguments
     parser.add_argument("--episodes", type=int, default=200, help="Number of episodes to train (default: 200)")
     parser.add_argument("--checkpoint-interval", type=int, default=10, help="Save checkpoint every N episodes")
+    parser.add_argument("--min-return", type=float, default=None, help="Stop episode early if total return drops below this value (e.g. 0.0)")
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
     parser.add_argument("--resume-folder", action="store_true", help="If --load is used, save new checkpoints in the loaded model's folder instead of creating a new one")
     parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from checkpoint_epN)")
@@ -275,6 +276,7 @@ def main():
                 agent=agent,
                 reward_kwargs=reward_kwargs,
                 obs_noise_scale=args.obs_noise,
+                min_return=args.min_return,
             )
             
             if result["status"] != 0:
