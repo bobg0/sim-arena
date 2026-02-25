@@ -50,7 +50,6 @@ def run_episode(
     agent_name: str = "greedy",
     reward_name: str = "shaped",
     agent=None,
-    kind_cluster: str = "cluster",
     reward_kwargs=None,
     obs_noise_scale: float = 0.0,
 ):
@@ -83,7 +82,6 @@ def run_episode(
             agent_name=agent_name,
             reward_name=reward_name,
             agent=agent,
-            kind_cluster=kind_cluster,
             step_idx=step_idx,
             reward_kwargs=reward_kwargs,
             obs_noise_scale=obs_noise_scale,
