@@ -274,13 +274,8 @@ def main():
             if agent is not None:
                 # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
-                with open(progress_path, "w") as f:
-                    json.dump({"episode": ep}, f)
-                try:
-                    agent.visualize(save_path=str(latest_plot_path))
-                    agent.plot_learning_curve(save_path=str(latest_curve_path))
-                except Exception as e:
-                    logger.warning(f"Skipping visualization (install matplotlib for plots): {e}")
+                agent.visualize(save_path=str(latest_plot_path))
+                agent.plot_learning_curve(save_path=str(latest_curve_path))
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:

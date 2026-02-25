@@ -55,7 +55,6 @@ STEP_LOG = LOG_DIR / "step.jsonl"
 SUMMARY_LOG = LOG_DIR / "summary.json"
 
 logger = logging.getLogger("one_step")
-DEFAULT_KIND_CLUSTER = "cluster"
 
 
 def _get_node_data_dir(kind_cluster: str) -> Path:
@@ -161,7 +160,6 @@ def one_step(
     agent_name: str = "heuristic",
     reward_name: str = "shaped",
     agent=None,
-    kind_cluster: str = DEFAULT_KIND_CLUSTER,
     step_idx: int = 0,
     reward_kwargs: Optional[dict] = None,
     obs_noise_scale: float = 0.0,
