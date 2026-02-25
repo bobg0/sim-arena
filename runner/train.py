@@ -58,7 +58,7 @@ def main():
     
     # Optional arguments with defaults
     parser.add_argument("--deploy", type=str, default="web", help="Deployment name (default: web)")
-    parser.add_argument("--duration", type=int, default=90, help="Duration per step in seconds (default: 90)")
+    parser.add_argument("--duration", type=int, default=40, help="Duration per step in seconds (default: 40)")
     parser.add_argument("--steps", type=int, default=200, help="Max steps per episode (default: 200)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (random if not specified)")
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
