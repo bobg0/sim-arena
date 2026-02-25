@@ -52,6 +52,7 @@ def run_episode(
     agent=None,
     reward_kwargs=None,
     obs_noise_scale: float = 0.0,
+    min_return: float = None,
 ):
     """
     Run a multi-step episode.
@@ -124,6 +125,10 @@ def run_episode(
         if done:
             logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")
             break
+        
+        if min_return is not None and total_reward < min_return:
+            logger.info(f"📉 Total return ({total_reward}) dropped below minimum threshold ({min_return}). Terminating episode early.")
+            break
 
         prev_dqn_state = curr_dqn_state
         prev_action_idx = curr_action_idx
@@ -191,6 +196,7 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
+        
     )
 
     if agent is not None and args.save:
