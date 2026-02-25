@@ -72,6 +72,7 @@ def main():
     parser.add_argument("--load", type=str, default=None, help="Path to load an initial agent checkpoint")
     parser.add_argument("--resume-folder", action="store_true", help="If --load is used, save new checkpoints in the loaded model's folder instead of creating a new one")
     parser.add_argument("--start-episode", type=int, default=None, help="Override start episode when resuming (default: auto-detect from checkpoint_epN)")
+    parser.add_argument("--transfer", action="store_true", help="Transfer learning mode: loads weights but resets history, episodes, and exploration")
     parser.add_argument("--save", type=str, default=None, help="Optional explicit path to save the final agent")
     parser.add_argument("--log-to-terminal", action="store_true", help="Print all logs to terminal (default: redirect logs to checkpoint folder)")
 
@@ -194,6 +195,10 @@ def main():
         logger.info(f"Loading agent weights from {args.load}...")
         agent.load(args.load)
 
+        if args.transfer:
+            logger.info("Transfer mode enabled: Resetting agent history and exploration steps.")
+            agent.reset()
+
     # File paths for continuous tracking
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
@@ -227,6 +232,11 @@ def main():
         if last_ep > 0:
             start_ep = last_ep + 1
             logger.info(f"Resuming from episode {start_ep} (read {last_ep} completed episodes directly from checkpoint)")
+
+            if args.transfer:
+                start_ep = 1
+                logger.info("Transfer mode: Overriding auto-detect to start at episode 1")
+
         else:
             logger.info("Resuming from episode 1 (could not find episode history in checkpoint)")
 
