@@ -53,6 +53,7 @@ def run_episode(
     reward_kwargs=None,
     obs_noise_scale: float = 0.0,
     min_return: float = None,
+    state_space: str = "base",
 ):
     """
     Run a multi-step episode.
@@ -87,6 +88,7 @@ def run_episode(
             step_idx=step_idx,
             reward_kwargs=reward_kwargs,
             obs_noise_scale=obs_noise_scale,
+            state_space=state_space,
         )
 
         if result["status"] != 0:
@@ -166,6 +168,7 @@ def main():
     parser.add_argument("--steps", type=int, default=5, help="Number of steps per episode")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use")
+    parser.add_argument("--state-space", type=str, default="base", help="State space representation")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (base, shaped, max_punish)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
     parser.add_argument("--load", type=str, default=None, help="Path to load an existing agent checkpoint")
@@ -201,7 +204,7 @@ def main():
         agent_name=args.agent,
         reward_name=args.reward,
         agent=agent,
-        
+        state_space=args.state_space,
     )
 
     if agent is not None and args.save:

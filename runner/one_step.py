@@ -196,6 +196,7 @@ def one_step(
     reward_kwargs: Optional[dict] = None,
     obs_noise_scale: float = 0.0,
     reward_fn=None,
+    state_space: str = "base",
 ):
     random.seed(seed)
     
@@ -287,13 +288,24 @@ def one_step(
         except (ValueError, TypeError):
             replicas = total
 
-        dqn_state = [
-            cpu_m / 4000,
-            mem_mi / 4096,
-            obs.get("pending", 0) / 5,
-            distance / 5,
-            min(1.0, replicas / 8),
-        ]
+        if state_space == "base":
+            dqn_state = [
+                cpu_m / 4000,
+                mem_mi / 4096,
+                obs.get("pending", 0) / 5,
+                distance / 5,
+                min(1.0, replicas / 8),
+            ]
+        elif state_space == "scale":
+            dqn_state = [
+                cpu_m / 4000,
+                mem_mi / 4096,
+                obs.get("pending", 0) / 10, 
+                distance / 10,              
+                min(1.0, replicas / 10),   
+            ]
+        else:
+            raise ValueError(f"Unknown state space configuration: {state_space}")
 
         # 4b) At target: no action taken, episode terminates (trace unchanged)
         ready = obs.get("ready", 0)

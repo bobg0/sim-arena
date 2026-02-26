@@ -64,6 +64,7 @@ def main():
     parser.add_argument("--agent", type=str, default="greedy", help="Agent to use (default: greedy)")
     parser.add_argument("--Naction", type=int, default=4, help="number of actions for the agent (default: 4, don't use reduction actions)")
     parser.add_argument("--reward", type=str, default="shaped", help="Reward function to use (default: shaped)")
+    parser.add_argument("--state-space", type=str, default="base", help="DQN state space representation (default: base)")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
     # Training & Checkpointing arguments
@@ -167,16 +168,21 @@ def main():
     # Initialize the agent
     agent = None
     file_ext = ".json"
-    # Must match ACTION_SPACE in one_step.py (7 actions: noop, bump_cpu, bump_mem, scale_up, reduce_cpu, reduce_mem, scale_down)
-    # state_dim must match dqn_state in one_step.py: [cpu_m/4000, mem_mi/4096, pending/5, distance/5, replicas/8] = 5
-    n_actions = 7
+    # Select ideal action space through your Naction argument. 
+    # Select ideal state space through your state-space argument. 
+    STATE_DIMS = {
+        "base": 5,
+        "scale": 5,
+    }
+    state_dim = STATE_DIMS.get(args.state_space, 5)
+    
     if args.agent == "greedy":
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=args.Naction, epsilon=0.1)
         file_ext = ".json"
     elif args.agent == "dqn":
         agent = Agent(
             AgentType.DQN,
-            state_dim=5,
+            state_dim=state_dim,
             n_actions=args.Naction,
             learning_rate=args.lr,
             gamma=args.gamma,
@@ -277,6 +283,7 @@ def main():
                 reward_kwargs=reward_kwargs,
                 obs_noise_scale=args.obs_noise,
                 min_return=args.min_return,
+                state_space=args.state_space,
             )
             
             if result["status"] != 0:
