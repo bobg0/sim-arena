@@ -18,3 +18,5 @@ torch>=2.0.0
 matplotlib>=3.7,<3.10
 
 boto3>=1.42.55
+
+gymnasium>=1.2.3
