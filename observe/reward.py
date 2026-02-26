@@ -85,7 +85,7 @@ def reward_shaped(obs: dict, target_total: int, T_s: int, resources: dict, **kwa
     final_reward = max(-1.0, min(1.0, reward))
     return final_reward
 
-def reward_rui(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:
+def reward_scale(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:
 
     ready = obs.get("ready", 0)
     pending = obs.get("pending", 0)
@@ -248,7 +248,7 @@ REWARD_REGISTRY: Dict[str, Callable] = {
     "shaped": reward_shaped,
     "cost_aware_v2": reward_cost_aware_v2,
     "max_punish": reward_max_punish,
-    "rui": reward_rui,
+    "scale": reward_scale,
 }
 
 def get_reward(name: str, **kwargs: Any) -> Callable:
