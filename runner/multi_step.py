@@ -67,6 +67,7 @@ def run_episode(
 
     prev_dqn_state = None
     prev_action_idx = None
+    done = False
 
     for step_idx in range(steps):
         # Kept at debug so it doesn't flood standard training logs
@@ -132,6 +133,10 @@ def run_episode(
 
         prev_dqn_state = curr_dqn_state
         prev_action_idx = curr_action_idx
+    
+    if agent_name == "dqn" and agent is not None and not done:
+        agent.episode_reward_history.append(agent.current_episode_reward)
+        agent.current_episode_reward = 0.0
 
     elapsed = time.time() - start_time
 
