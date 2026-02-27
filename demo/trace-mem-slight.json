@@ -10,11 +10,11 @@
   "pod_lifecycles": {},
   "index": {},
   "metadata": {
-    "description": "Memory slight: 3 x 12Gi = 36Gi (exceeds 32Gi KWOK node)",
+    "description": "Memory slight: 3 x 33Gi (exceeds 32Gi/node -> all pending)",
     "scenario": {
       "failure_mode": "memory_only",
       "severity": "slight",
-      "initial_state": "3 pods, 12Gi each (36Gi total), exceeds 32Gi/node",
+      "initial_state": "3 pods, 33Gi each (exceeds 32Gi/node capacity)",
       "target": "3 pods ready",
       "expected_behavior": "Agent should reduce memory to get under 32Gi/node limit"
     }
@@ -52,7 +52,7 @@
                     "resources": {
                       "requests": {
                         "cpu": "500m",
-                        "memory": "12Gi"
+                        "memory": "33Gi"
                       }
                     }
                   }

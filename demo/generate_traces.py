@@ -6,9 +6,9 @@ Six scenario types for diverse training (agent randomly gets one per episode):
 
   trace-cpu-slight   -- CPU over: 3 x 17000m (reduce_cpu)
   trace-cpu-heavy    -- CPU far over: 3 x 20000m (reduce_cpu)
-  trace-mem-slight   -- Memory over: 3 x 12Gi (reduce_mem)
-  trace-mem-heavy    -- Memory far over: 3 x 15Gi (reduce_mem)
-  trace-cpu-mem      -- Both over: 3 x 17000m + 12Gi (reduce both)
+  trace-mem-slight   -- Memory over: 3 x 33Gi (exceeds 32Gi/node -> pending)
+  trace-mem-heavy    -- Memory far over: 3 x 40Gi (exceeds 32Gi/node -> pending)
+  trace-cpu-mem      -- Both over: 3 x 17000m + 33Gi (reduce both)
   trace-replicas-over -- Too many replicas: 5 x 500m (scale_down to 3)
 
 Usage:
@@ -119,39 +119,39 @@ TRACES = {
     ),
     "trace-mem-slight": _make_trace(
         cpu_per_pod="500m",
-        memory_per_pod="12Gi",
+        memory_per_pod="33Gi",
         replicas=3,
-        description="Memory slight: 3 x 12Gi = 36Gi (exceeds 32Gi KWOK node)",
+        description="Memory slight: 3 x 33Gi (exceeds 32Gi/node -> all pending)",
         scenario={
             "failure_mode": "memory_only",
             "severity": "slight",
-            "initial_state": "3 pods, 12Gi each (36Gi total), exceeds 32Gi/node",
+            "initial_state": "3 pods, 33Gi each (exceeds 32Gi/node capacity)",
             "target": "3 pods ready",
             "expected_behavior": "Agent should reduce memory to get under 32Gi/node limit",
         },
     ),
     "trace-mem-heavy": _make_trace(
         cpu_per_pod="500m",
-        memory_per_pod="15Gi",
+        memory_per_pod="40Gi",
         replicas=3,
-        description="Memory heavy: 3 x 15Gi = 45Gi (far over 32Gi limit)",
+        description="Memory heavy: 3 x 40Gi (far over 32Gi/node -> all pending)",
         scenario={
             "failure_mode": "memory_only",
             "severity": "heavy",
-            "initial_state": "3 pods, 15Gi each (45Gi total), far over node capacity",
+            "initial_state": "3 pods, 40Gi each (far over 32Gi/node capacity)",
             "target": "3 pods ready",
             "expected_behavior": "Agent should reduce memory multiple times",
         },
     ),
     "trace-cpu-mem": _make_trace(
         cpu_per_pod="17000m",
-        memory_per_pod="12Gi",
+        memory_per_pod="33Gi",
         replicas=3,
-        description="Both over: 3 x 17 CPU + 12Gi (exceeds 16 CPU and 32Gi per node)",
+        description="Both over: 3 x 17 CPU + 33Gi (exceeds 16 CPU and 32Gi per node)",
         scenario={
             "failure_mode": "cpu_and_memory",
             "severity": "medium",
-            "initial_state": "3 pods, 17 CPU + 12Gi each - both over node limits",
+            "initial_state": "3 pods, 17 CPU + 33Gi each - both over node limits",
             "target": "3 pods ready",
             "expected_behavior": "Agent should reduce both CPU and memory",
         },

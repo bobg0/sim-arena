@@ -397,17 +397,19 @@ class DQNAgent(BaseAgent):
 
         fig, axes = plt.subplots(3, 1, figsize=(10, 10))
         
-        # Plot 1: Episode returns
+        # Plot 1: Episode returns (cumulative across all episodes)
         ax = axes[0]
         if len(self.episode_reward_history) > 0:
-            ax.plot(self.episode_reward_history, marker='o', markersize=4, alpha=0.4, color='blue', label='Total Episode Return')
-            if len(self.episode_reward_history) >= 10:
-                window = 10
+            episodes = np.arange(1, len(self.episode_reward_history) + 1)
+            ax.plot(episodes, self.episode_reward_history, marker='o', markersize=8, alpha=0.7, color='blue', label='Total Episode Return')
+            if len(self.episode_reward_history) >= 3:
+                window = min(10, len(self.episode_reward_history))
                 rolling_rewards = np.convolve(self.episode_reward_history, np.ones(window)/window, mode='valid')
-                ax.plot(np.arange(window-1, len(self.episode_reward_history)), rolling_rewards, color='darkblue', linewidth=2, label=f'{window}-Ep Moving Avg')
-            ax.set_title('Episodic Return (Sum of Rewards per Episode)')
-            ax.set_xlabel('Episodes')
+                ax.plot(episodes[window-1:], rolling_rewards, color='darkblue', linewidth=2, label=f'{window}-Ep Moving Avg')
+            ax.set_title('Episodic Return (Sum of Rewards per Episode) — cumulative')
+            ax.set_xlabel('Episode')
             ax.set_ylabel('Return')
+            ax.set_xlim(0.5, len(self.episode_reward_history) + 0.5)
             ax.legend()
         else:
             ax.set_title('Episodic Return (No Episode Data Yet)')
@@ -420,7 +422,7 @@ class DQNAgent(BaseAgent):
             rolling = np.convolve(self.reward_history, np.ones(window)/window, mode='valid')
             ax.plot(self.reward_history, alpha=0.3, color='green', label='Step Reward')
             ax.plot(np.arange(window-1, len(self.reward_history)), rolling, color='darkgreen', linewidth=2, label=f'{window}-Step Moving Avg')
-            ax.set_title('Step Rewards (Per-Step Feedback)')
+            ax.set_title('Step Rewards (Per-Step Feedback) — cumulative across all episodes')
             ax.set_xlabel('Training Steps')
             ax.set_ylabel('Reward')
             ax.legend()
@@ -428,18 +430,20 @@ class DQNAgent(BaseAgent):
             ax.set_title('Step Rewards (No Data Yet)')
         ax.grid(alpha=0.3)
 
-        # Plot 3: Loss
+        # Plot 3: Loss (only recorded when buffer has enough samples for an update)
         ax = axes[2]
         if len(self.loss_history) > 0:
-            window = min(100, len(self.loss_history))
+            steps = np.arange(1, len(self.loss_history) + 1)
+            ax.plot(steps, self.loss_history, alpha=0.3, color='red', label='Step Loss')
+            window = min(50, max(5, len(self.loss_history) // 4))
             rolling_loss = np.convolve(self.loss_history, np.ones(window)/window, mode='valid')
-            ax.plot(np.arange(window-1, len(self.loss_history)), rolling_loss, color='darkred', linewidth=2, label=f'{window}-Step Moving Avg')
-            ax.set_title('DQN Step Loss')
-            ax.set_xlabel('Training Steps')
+            ax.plot(steps[window-1:], rolling_loss, color='darkred', linewidth=2, label=f'{window}-Step Moving Avg')
+            ax.set_title('DQN Step Loss (recorded when buffer ≥ batch_size)')
+            ax.set_xlabel('Update Step')
             ax.set_ylabel('Loss (MSE)')
             ax.legend()
         else:
-            ax.set_title('DQN Loss Curve (No Data)')
+            ax.set_title('DQN Loss (No Data Yet — need ≥32 steps in buffer for first update)')
         ax.grid(alpha=0.3)
 
         plt.tight_layout()

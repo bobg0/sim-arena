@@ -10,11 +10,11 @@
   "pod_lifecycles": {},
   "index": {},
   "metadata": {
-    "description": "Memory heavy: 3 x 15Gi = 45Gi (far over 32Gi limit)",
+    "description": "Memory heavy: 3 x 40Gi (far over 32Gi/node -> all pending)",
     "scenario": {
       "failure_mode": "memory_only",
       "severity": "heavy",
-      "initial_state": "3 pods, 15Gi each (45Gi total), far over node capacity",
+      "initial_state": "3 pods, 40Gi each (far over 32Gi/node capacity)",
       "target": "3 pods ready",
       "expected_behavior": "Agent should reduce memory multiple times"
     }
@@ -52,7 +52,7 @@
                     "resources": {
                       "requests": {
                         "cpu": "500m",
-                        "memory": "15Gi"
+                        "memory": "40Gi"
                       }
                     }
                   }
