@@ -6,18 +6,18 @@ manages agent persistence, and automatically saves checkpoints.
 
 Sample usage:
   # Train on 6 trace types (random per episode), logs to terminal
-  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --deploy web --target 3 \\
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --deploy web --target 3 \
     --agent dqn --episodes 50 --steps 10 --duration 60
 
   # Redirect logs to checkpoint folder (for background/long runs)
-  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \
     --episodes 50 --log-to-checkpoint
 
   # Single trace (legacy)
   PYTHONPATH=. nohup python runner/train.py --trace demo/trace-0001.msgpack --ns test-ns --target 3 --agent dqn &
 
   # Resume from checkpoint (reuses checkpoint folder, resumes from last episode)
-  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \\
+  PYTHONPATH=. python runner/train.py --trace demo --ns test-ns --target 3 --agent dqn \
     --load checkpoints/dqn_20260221_20/checkpoint_latest.pt --episodes 50
 
 Important Notes:
@@ -88,6 +88,7 @@ def main():
     parser.add_argument("--buffer-size", type=int, default=2000, help="Replay buffer size (default: 2000)")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
     parser.add_argument("--target-update", type=int, default=50, help="Target network update frequency (default: 50)")
+    parser.add_argument("--updates-per-step", type=int, default=4, help="Number of gradient updates per environment step (default: 4)")
 
     # cost_aware_v2 reward tuning
     parser.add_argument("--step-penalty", type=float, default=0.0, help="Per-step penalty to favor faster fixes (default: 0)")
@@ -111,18 +112,17 @@ def main():
 
     # Resolve reproducibility
     base_seed = args.seed if args.seed is not None else random.randint(0, 999999)
-    # Ensure the randomly generated seed is saved in the args namespace for logging
     args.seed = base_seed
 
     # Setup checkpoint directory: reuse folder when resuming ONLY IF --resume-folder is passed
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") # Added %M%S to prevent collisions on rapid restarts
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     if args.load:
         load_path = Path(args.load).resolve()
         if not load_path.exists():
             raise SystemExit(f"--load path not found: {args.load}")
             
-        if args.resume_folder:
+        if args.resume-folder:
             checkpoint_folder = load_path.parent
             logger.info(f"Resuming in existing folder: {checkpoint_folder}")
         else:
@@ -224,13 +224,11 @@ def main():
         if str(args.load).endswith(".pt"):
             try:
                 import torch
-                # Load the checkpoint dict directly to read the episode history length
                 checkpoint_data = torch.load(args.load, map_location="cpu", weights_only=False)
                 last_ep = len(checkpoint_data.get('episode_reward_history', []))
             except Exception as e:
                 logger.warning(f"Failed to extract episode history from checkpoint: {e}")
         else:
-            # Basic fallback for non-PyTorch agents (like greedy JSON saves)
             try:
                 with open(args.load, "r") as f:
                     data = json.load(f)
@@ -265,12 +263,10 @@ def main():
             logger.info(f"🚀 Episode {ep}/{args.episodes} | trace: {Path(trace_path).name}")
             logger.info("=" * 60)
             
-            # Build reward_kwargs for cost_aware_v2
             reward_kwargs = None
             if args.reward == "cost_aware_v2":
                 reward_kwargs = {"step_penalty": args.step_penalty}
 
-            # Run the episode
             result = run_episode(
                 trace_path=trace_path,
                 namespace=args.namespace,
@@ -286,6 +282,7 @@ def main():
                 obs_noise_scale=args.obs_noise,
                 min_return=args.min_return,
                 state_space=args.state_space,
+                updates_per_step=args.updates_per_step,  # Pass it down to multi_step
             )
             
             if result["status"] != 0:
@@ -314,7 +311,6 @@ def main():
     finally:
         # Final Checkpoints & Saves (Runs whether training completes, fails, or is interrupted)
         if agent is not None:
-            # Ensure the latest is up to date in case of interruption
             agent.save(str(latest_ckpt_path))
             try:
                 agent.visualize(save_path=str(latest_plot_path))
