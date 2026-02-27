@@ -230,8 +230,9 @@ def one_step(
         logger.debug("pre_start hooks completed.")
 
         # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
-        # isengard mounts ~/.local/kind-node-data/<kind_cluster> -> /data in the kind worker
-        node_data_dir = _get_node_data_dir(kind_cluster)
+        # isengard mounts ~/.local/kind-node-data/<kind_cluster> -> /data in the kind worker,
+        # but kind_cluster is named same as namespace by simkube
+        node_data_dir = _get_node_data_dir(namespace)
         node_data_dir.mkdir(parents=True, exist_ok=True)
         dest_trace = node_data_dir / trace_filename
         shutil.copy2(local_trace_path, dest_trace)

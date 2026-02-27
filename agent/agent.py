@@ -81,6 +81,11 @@ class Agent:
     def update(self, *args, **kwargs):
         self._agent.update(*args, **kwargs)
     
+    def _train_step(self):
+        """Perform a training step if the underlying agent supports it."""
+        if hasattr(self._agent, '_train_step'):
+            self._agent._train_step()
+    
     def save(self, path: str):
         """Save the underlying agent to the specified path."""
         self._agent.save(path)
