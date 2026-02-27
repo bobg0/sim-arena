@@ -178,6 +178,9 @@ class DQNAgent(BaseAgent):
 
     def _train_step(self):
         """Sample from replay buffer and perform one training step."""
+        if len(self.memory) < self.batch_size:
+            return
+            
         minibatch = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*minibatch))
 

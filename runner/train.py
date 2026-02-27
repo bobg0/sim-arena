@@ -122,7 +122,7 @@ def main():
         if not load_path.exists():
             raise SystemExit(f"--load path not found: {args.load}")
             
-        if args.resume-folder:
+        if args.resume_folder:
             checkpoint_folder = load_path.parent
             logger.info(f"Resuming in existing folder: {checkpoint_folder}")
         else:

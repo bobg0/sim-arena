@@ -108,8 +108,9 @@ def run_episode(
                     done=done
                 )
                 
-                for _ in range(updates_per_step - 1):
-                        underlying_agent._train_step()
+                if hasattr(agent, "_train_step"):
+                    for _ in range(updates_per_step - 1):
+                        agent._train_step()
 
         if done:
             logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")
