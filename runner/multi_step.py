@@ -2,24 +2,6 @@
 runner/multi_step.py
 
 Run multiple sequential agent steps (episodes) using the existing one_step runner.
-
-Sample usage:
-
-# Use scale_replicas to grow pods each step (good for testing multi-step)
-PYTHONPATH=. python runner/multi_step.py \
-  --trace demo/trace-scaling-v2.msgpack \
-  --ns test-ns \
-  --deploy web \
-  --target 5 \
-  --steps 5 \
-  --agent greedy \
-  --log-level DEBUG
-
-# Use dqn agent to learn over multiple steps (good for testing learning)
-python runner/multi_step.py  --trace demo/trace-0001.msgpack  --deploy web \
---agent dqn  --ns test-ns  --target 3  --steps 5 
-
-
 """
 import sys
 from pathlib import Path
@@ -54,12 +36,13 @@ def run_episode(
     obs_noise_scale: float = 0.0,
     min_return: float = None,
     state_space: str = "base",
+    updates_per_step: int = 4,  # Default to 4 updates per step
 ):
     """
     Run a multi-step episode.
     Returns: dict with episode summary
     """
-    logger.info(f"Starting episode: max_steps={steps}, trace={trace_path}, agent={agent_name}")
+    logger.info(f"Starting episode: max_steps={steps}, trace={trace_path}, agent={agent_name}, updates_per_step={updates_per_step}")
 
     current_trace = trace_path
     episode_records = []
@@ -71,7 +54,6 @@ def run_episode(
     done = False
 
     for step_idx in range(steps+1):
-        # Kept at debug so it doesn't flood standard training logs
         logger.debug(f"--- Processing State {step_idx} ---")
         logger.debug(f"Using trace: {current_trace}")
 
@@ -117,6 +99,7 @@ def run_episode(
             if agent_name == "greedy" and prev_action_idx is not None:
                 agent.update(prev_action_idx, curr_reward)
             elif agent_name == "dqn" and prev_dqn_state is not None:
+                # Add transition to buffer and trigger the FIRST train step
                 agent.update(
                     state=prev_dqn_state, 
                     action=prev_action_idx, 
@@ -124,6 +107,9 @@ def run_episode(
                     reward=curr_reward, 
                     done=done
                 )
+                
+                for _ in range(updates_per_step - 1):
+                        underlying_agent._train_step()
 
         if done:
             logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")
@@ -177,6 +163,7 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Set the logging level")
     parser.add_argument("--load", type=str, default=None, help="Path to load an existing agent checkpoint")
     parser.add_argument("--save", type=str, default=None, help="Path to save the agent checkpoint after the episode")
+    parser.add_argument("--updates-per-step", type=int, default=4, help="Number of gradient updates per environment step")
 
     args = parser.parse_args()
 
@@ -209,6 +196,7 @@ def main():
         reward_name=args.reward,
         agent=agent,
         state_space=args.state_space,
+        updates_per_step=args.updates_per_step,
     )
 
     if agent is not None and args.save:
