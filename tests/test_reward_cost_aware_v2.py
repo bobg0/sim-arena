@@ -69,10 +69,10 @@ REDUCE_CPU_CONFIGS = [
 REDUCE_MEM_CONFIGS = [
     (
         {"ready": 0, "pending": 3, "total": 3},
-        {"cpu": "500m", "memory": "12Gi", "replicas": 3},
+        {"cpu": "500m", "memory": "33Gi", "replicas": 3},
         TARGET,
         "reduce_mem",
-        "Initial (trace-mem-slight): 0 ready, 3 pending, 12Gi/pod",
+        "Initial (trace-mem-slight): 0 ready, 3 pending, 33Gi/pod (exceeds 32Gi/node)",
     ),
     (
         {"ready": 2, "pending": 1, "total": 3},
@@ -230,9 +230,9 @@ def test_reduce_cpu_progression():
 
 def test_reduce_mem_progression():
     """Log a simulated reduce_mem episode path."""
-    print("\n--- Simulated reduce_mem progression (12Gi → 256Mi) ---")
+    print("\n--- Simulated reduce_mem progression (33Gi → 256Mi) ---")
     steps = [
-        ({"ready": 0, "pending": 3, "total": 3}, {"cpu": "500m", "memory": "12Gi", "replicas": 3}),
+        ({"ready": 0, "pending": 3, "total": 3}, {"cpu": "500m", "memory": "33Gi", "replicas": 3}),
         ({"ready": 0, "pending": 3, "total": 3}, {"cpu": "500m", "memory": "8Gi", "replicas": 3}),
         ({"ready": 2, "pending": 1, "total": 3}, {"cpu": "500m", "memory": "4Gi", "replicas": 3}),
         ({"ready": 3, "pending": 0, "total": 3}, {"cpu": "500m", "memory": "1Gi", "replicas": 3}),

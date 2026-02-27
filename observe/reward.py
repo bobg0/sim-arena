@@ -126,6 +126,8 @@ REF_MEM_B = 256 * 1024**2
 
 
 def reward_cost_aware(obs: dict, target_total: int, resources: dict) -> dict:
+    # look into this again ... based on notes.
+    # have all rewards be negative (-1,0)
     """
     Cost-aware reward: computes health, cost, and reward.
     Returns dict with {health, cost, reward, healthy, ...} for tuning/validation.
@@ -170,14 +172,25 @@ def reward_cost_aware(obs: dict, target_total: int, resources: dict) -> dict:
     )
 
     healthy = (ready >= tgt) and (pending == 0)
-    if healthy:
+    # Goal: exactly at target with no pending (per Erin Talvitie: terminal state = 0)
+    at_goal = (ready == tgt) and (pending == 0) and (total == tgt)
+
+    if at_goal:
+        reward = 0.0  # Terminal state: agent gets 0 (better than negative forever)
+    elif healthy:
         reward = 0.9 - 0.6 * cost
     else:
         # Prioritize health when unhealthy: minimal cost weight so agent focuses on fixing scheduling
         cost_weight = 0.08 if pending > 0 else 0.12
         reward = health - cost_weight * cost
 
-    reward = max(-1.0, min(1.0, reward))
+    # Per Erin Talvitie: all rewards must be negative (except at goal) so agent has
+    # incentive to finish the episode rather than no-op forever for positive reward.
+    # Shift: less negative when closer to goal, but always negative when not at goal.
+    if not at_goal:
+        reward = max(-1.0, reward - 1.0)  # maps [0,1] -> [-1,0], [-1,0] -> [-2,-1] clamped to -1
+    reward = max(-1.0, min(0.0, reward))
+
 
     return {
         "health": health,
@@ -218,7 +231,7 @@ def reward_cost_aware_v2(
     # Penalty for blocked actions: discourages repeatedly trying invalid actions
     if action_info and action_info.get("blocked", False):
         r -= 0.12
-    return max(-1.0, min(1.0, r))
+    return max(-1.0, min(0.0, r))  # Never positive (per Erin Talvitie)
 
 
 def reward_max_punish(obs: dict, target_total: int, T_s: int, resources: dict, **kwargs: Any) -> float:

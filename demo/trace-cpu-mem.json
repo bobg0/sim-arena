@@ -10,11 +10,11 @@
   "pod_lifecycles": {},
   "index": {},
   "metadata": {
-    "description": "Both over: 3 x 17 CPU + 12Gi (exceeds 16 CPU and 32Gi per node)",
+    "description": "Both over: 3 x 17 CPU + 33Gi (exceeds 16 CPU and 32Gi per node)",
     "scenario": {
       "failure_mode": "cpu_and_memory",
       "severity": "medium",
-      "initial_state": "3 pods, 17 CPU + 12Gi each - both over node limits",
+      "initial_state": "3 pods, 17 CPU + 33Gi each - both over node limits",
       "target": "3 pods ready",
       "expected_behavior": "Agent should reduce both CPU and memory"
     }
@@ -52,7 +52,7 @@
                     "resources": {
                       "requests": {
                         "cpu": "17000m",
-                        "memory": "12Gi"
+                        "memory": "33Gi"
                       }
                     }
                   }

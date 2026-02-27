@@ -124,6 +124,13 @@ def run_episode(
                     reward=curr_reward, 
                     done=done
                 )
+        
+        # to-do
+        # if its terminal step and we haven't reached the target, we should make q state = 0
+        # add a flag for when the epsiode is done 
+        # differenent behaviors for when the episode is done
+
+
 
         if done:
             logger.info(f"🎯 Target state reached at State {step_idx}! Terminating episode early.")

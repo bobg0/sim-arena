@@ -28,6 +28,7 @@ Before running, ensure you run the following commands to clean up any ghost simu
 
 import sys
 import os
+import shutil
 import json
 import re
 import argparse
@@ -210,6 +211,7 @@ def main():
     latest_ckpt_path = checkpoint_folder / f"checkpoint_latest{file_ext}"
     latest_plot_path = checkpoint_folder / "agent_visualization_latest.png"
     latest_curve_path = checkpoint_folder / "learning_curve_latest.png"
+    progress_path = checkpoint_folder / "progress.json"
 
    # When resuming, start from the episode after the last completed one
     start_ep = 1
