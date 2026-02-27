@@ -291,7 +291,7 @@ class DQNAgent(BaseAgent):
         ]
 
         pending = 0
-        distance_sweep = list(range(5))  # Sweeps distances 0 through 4
+        distance_sweep = [0, 2, 4, 8, 10]
         # replicas/8: 0.125 for 1, 0.25 for 2, 0.375 for 3 (target)
         replicas_norm = 0.375  # target=3
 
