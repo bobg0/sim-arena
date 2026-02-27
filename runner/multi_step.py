@@ -70,7 +70,7 @@ def run_episode(
     prev_action_idx = None
     done = False
 
-    for step_idx in range(steps):
+    for step_idx in range(steps+1):
         # Kept at debug so it doesn't flood standard training logs
         logger.debug(f"--- Processing State {step_idx} ---")
         logger.debug(f"Using trace: {current_trace}")
@@ -138,6 +138,10 @@ def run_episode(
         
         if min_return is not None and total_reward < min_return:
             logger.info(f"📉 Total return ({total_reward}) dropped below minimum threshold ({min_return}). Terminating episode early.")
+            break
+        
+        if step_idx == steps:
+            logger.info(f"⏳ Max steps ({steps}) reached. Terminating episode early.")
             break
 
         prev_dqn_state = curr_dqn_state
