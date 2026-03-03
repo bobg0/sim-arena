@@ -52,7 +52,7 @@ for each episode:
      ↓
   5. Apply Action (modify trace file)
      ↓
-  6. Compute Reward (shaped, base, or max_punish)
+  6. Compute Reward (shaped, base, cost_aware_v2, or max_punish)
      ↓
   7. Agent Learn (update Q-network / value table)
      ↓
@@ -189,9 +189,10 @@ SimKube creates pods in a **virtual namespace** derived from the trace: `virtual
                            ↓
 ┌──────────────────────────────────────────────────────────────┐
 │ one_step.py: COMPUTE REWARD (observe/reward.py)              │
-│  - base:       1 if ready==target and pending==0, else 0     │
-│  - shaped:     continuous −1 to 1, distance-based            │
-│  - max_punish: base + penalties for over-allocation          │
+│  - base:        1 if ready==target and pending==0, else 0    │
+│  - shaped:      continuous −1 to 1, distance-based           │
+│  - cost_aware_v2: all negative except 0 at goal; health+cost │
+│  - max_punish:  base + penalties for over-allocation         │
 └──────────────────────────────────────────────────────────────┘
                            ↓
 ┌──────────────────────────────────────────────────────────────┐
@@ -238,8 +239,8 @@ Orchestrates the full training run across multiple episodes.
 | `--agent` | `greedy` | `greedy` or `dqn` |
 | `--episodes` | 200 | Total training episodes |
 | `--steps` | 200 | Max steps per episode |
-| `--duration` | 90 | Seconds per sim step |
-| `--reward` | `shaped` | `base`, `shaped`, or `max_punish` |
+| `--duration` | 40 | Seconds per sim step |
+| `--reward` | `shaped` | `base`, `shaped`, `cost_aware_v2`, or `max_punish` |
 | `--Naction` | 4 | Action space size |
 | `--checkpoint-interval` | 10 | Save every N episodes |
 | `--load` | None | Resume from checkpoint |
@@ -253,6 +254,7 @@ Orchestrates the full training run across multiple episodes.
 | `--buffer-size` | 2000 | Replay buffer capacity |
 | `--batch-size` | 32 | DQN minibatch size |
 | `--target-update` | 50 | Target network sync frequency |
+| `--step-penalty` | 0 | Per-step penalty (for `cost_aware_v2`; favors faster fixes) |
 
 ---
 
@@ -345,6 +347,7 @@ observe(namespace, deploy) → {"ready": 2, "pending": 1, "total": 3}
 
 - `base` — Binary (1 if ready==target and pending==0, else 0)
 - `shaped` — Continuous (−1 to 1) with distance-based penalties
+- `cost_aware_v2` — All negative except 0 at goal; health + cost (CPU/mem/replica waste); penalizes blocked actions
 - `max_punish` — Base + penalties for exceeding CPU/memory/replica limits
 
 ---
@@ -525,10 +528,10 @@ cat runs/step.jsonl
 ### Available Reward Functions
 
 ```bash
---reward base        # Binary (0 or 1)
---reward shaped      # Continuous (−1 to 1) with distance-based penalties
---reward cost_aware  # Penalizes over-allocation; encourages minimal-resource fixes
---reward max_punish  # Base + penalties for exceeding resource limits
+--reward base           # Binary (0 or 1)
+--reward shaped         # Continuous (−1 to 1) with distance-based penalties
+--reward cost_aware_v2  # All negative except 0 at goal; health+cost shaping; use --step-penalty for faster fixes
+--reward max_punish     # Base + penalties for exceeding resource limits
 ```
 
 ### Run Multiple Episodes
@@ -636,4 +639,6 @@ Trace File → Simulation → Cluster → Observation → Agent → Action → M
 
 **Current state**: Full training loop with DQN and Epsilon-Greedy agents, automatic checkpointing, and learning curve visualization.
 
-**Next steps**: Extend the observation space, tune reward shaping, or plug in more powerful agents (PPO, A2C, etc.) via the `agent/` module. 
+**Next steps**: Extend the observation space, tune reward shaping, or plug in more powerful agents (PPO, A2C, etc.) via the `agent/` module.
+
+**Reward design note**: The `cost_aware_v2` reward uses all-negative rewards (0 only at goal) so the agent has incentive to finish episodes rather than no-op forever. See `observe/reward.py` for details. 
