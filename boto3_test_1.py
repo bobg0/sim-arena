@@ -174,6 +174,7 @@ def main() -> None:
           echo "runs/step.jsonl not found. Contents of runs/:"
           ls -la runs || true
         fi
+	echo "=== end of runs/step.jsonl ==="
         """)
 
         output = ssh_run_script(ip, ssh_user, ssh_key, remote_script)
