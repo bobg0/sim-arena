@@ -123,4 +123,5 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 | `Too many open files` | `ulimit -n 4096` (or higher) |
 | Trace not found by driver | Ensure `SIM_ARENA_NODE_DATA_DIR` points to the node data path; check `ls /var/kind/cluster/` |
 | No pods in virtual-default | Check SimKube controller logs: `kubectl logs -n simkube -l app=sk-ctrl` |
+| Deployment 'web' not found (404) | Driver may not have applied the trace yet. Check driver pod logs: `kubectl logs -n simkube -l job-name=sk-<sim_name>-driver` |
 | `kubectl` not found or wrong cluster | Set `KUBECONFIG` to the correct config path |

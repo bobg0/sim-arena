@@ -90,6 +90,27 @@ def wait_for_driver_ready(sim_name: str, timeout: int = 150) -> bool:
     logger.warning(f"Driver pod didn't enter Running state within {timeout}s buffer. Proceeding anyway.")
     return False
 
+def wait_for_deployment(namespace: str, deploy: str, timeout: int = 90) -> bool:
+    """Polls until the deployment exists (driver has applied the trace)."""
+    import subprocess
+
+    logger.info(f"Waiting for deployment '{deploy}' in {namespace} (driver applying trace)...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        result = subprocess.run(
+            ["kubectl", "get", "deployment", deploy, "-n", namespace, "-o", "name"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode == 0 and deploy in (result.stdout or ""):
+            elapsed = time.time() - start_time
+            logger.info(f"Deployment '{deploy}' found ({elapsed:.1f}s)")
+            return True
+        time.sleep(2)
+
+    logger.warning(f"Deployment '{deploy}' not found within {timeout}s. Proceeding anyway.")
+    return False
+
 def _get_node_data_dir(kind_cluster: str) -> Path:
     """Path where trace files must be placed for SimKube to read them at file:///data/
     Override with SIM_ARENA_NODE_DATA_DIR for EC2/remote setups (e.g. /var/kind/cluster).
@@ -250,7 +271,10 @@ def one_step(
 
         # 2.5) Synchronize timer with the driver pod
         wait_for_driver_ready(sim_name)
-        
+
+        # 2.6) Wait for driver to apply trace (deployment must exist before we observe)
+        wait_for_deployment(virtual_namespace, deploy)
+
         # 3) wait fixed
         logger.info(f"Waiting fixed duration: {duration}s ...")
         wait_fixed(duration)
