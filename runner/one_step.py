@@ -14,6 +14,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import os
 import logging
 import random
 import shutil
@@ -56,7 +57,7 @@ SUMMARY_LOG = LOG_DIR / "summary.json"
 
 logger = logging.getLogger("one_step")
 
-def wait_for_driver_ready(sim_name: str, timeout: int = 60) -> bool:
+def wait_for_driver_ready(sim_name: str, timeout: int = 150) -> bool:
     """Polls Kubernetes until the SimKube driver pod is actively Running."""
     import subprocess
 
@@ -90,7 +91,12 @@ def wait_for_driver_ready(sim_name: str, timeout: int = 60) -> bool:
     return False
 
 def _get_node_data_dir(kind_cluster: str) -> Path:
-    """Path where trace files must be placed for SimKube to read them at file:///data/"""
+    """Path where trace files must be placed for SimKube to read them at file:///data/
+    Override with SIM_ARENA_NODE_DATA_DIR for EC2/remote setups (e.g. /var/kind/cluster).
+    """
+    override = os.environ.get("SIM_ARENA_NODE_DATA_DIR")
+    if override:
+        return Path(override)
     return Path.home() / ".local" / "kind-node-data" / kind_cluster
 
 # ---- Helper function to extract current resource state from trace ----
