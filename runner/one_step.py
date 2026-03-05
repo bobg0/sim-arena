@@ -331,9 +331,9 @@ def one_step(
             dqn_state = [
                 cpu_m / 4000,
                 mem_mi / 4096,
-                obs.get("pending", 0) / 10, 
-                distance / 10,              
-                min(1.0, replicas / 10),   
+                obs.get("pending", 0) / 15, 
+                distance / 15,              
+                min(1.0, replicas / 15),   
             ]
         else:
             raise ValueError(f"Unknown state space configuration: {state_space}")
@@ -359,7 +359,7 @@ def one_step(
             action_idx = 0
             action_info = {"changed": False, "blocked": False}
             logger.info("Target reached: skipping action (no modification)")
-        elif agent_name == "greedy" and agent is not None:
+        elif agent_name in ["greedy", "random"] and agent is not None:
             action_idx = agent.act()
             action = ACTION_SPACE.get(action_idx, {"type": "noop"})
             logger.debug(f"Agent '{agent_name}' chose action index: {action_idx}")

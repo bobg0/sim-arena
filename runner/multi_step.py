@@ -98,8 +98,8 @@ def run_episode(
         if step_idx > 0 and agent is not None:
             if agent_name == "greedy" and prev_action_idx is not None:
                 agent.update(prev_action_idx, curr_reward)
-            elif agent_name == "dqn" and prev_dqn_state is not None:
-                # Add transition to buffer and trigger the FIRST train step
+            elif agent_name in ["dqn", "random"] and prev_dqn_state is not None:
+                # Add transition to buffer/history and trigger the FIRST train step (for DQN)
                 agent.update(
                     state=prev_dqn_state, 
                     action=prev_action_idx, 
@@ -108,7 +108,7 @@ def run_episode(
                     done=done
                 )
                 
-                if hasattr(agent, "_train_step"):
+                if agent_name == "dqn" and hasattr(agent, "_train_step"):
                     for _ in range(updates_per_step - 1):
                         agent._train_step()
 
@@ -127,9 +127,11 @@ def run_episode(
         prev_dqn_state = curr_dqn_state
         prev_action_idx = curr_action_idx
     
-    if agent_name == "dqn" and agent is not None and not done:
-        agent.episode_reward_history.append(agent.current_episode_reward)
-        agent.current_episode_reward = 0.0
+    underlying_agent = getattr(agent, "_agent", agent)
+
+    if agent_name in ["dqn", "random"] and agent is not None and not done:
+        underlying_agent.episode_reward_history.append(underlying_agent.current_episode_reward)
+        underlying_agent.current_episode_reward = 0.0
 
     elapsed = time.time() - start_time
 
@@ -180,6 +182,8 @@ def main():
         agent = Agent(AgentType.EPSILON_GREEDY, n_actions=7, epsilon=0.1)
     elif args.agent == "dqn":
         agent = Agent(AgentType.DQN, state_dim=5, n_actions=7)
+    elif args.agent == "random":
+        agent = Agent(AgentType.RANDOM, n_actions=7)
 
     if agent is not None and args.load:
         logger.info(f"Loading agent weights from {args.load}...")

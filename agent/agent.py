@@ -98,7 +98,7 @@ class Agent:
         if hasattr(self._agent, 'reset'):
             self._agent.reset()
     
-    def visualize(self, save_path: Optional[str] = None):
+    def visualize(self, save_path: Optional[str] = None, **kwargs):
         """ Visualize the agent's learned values. """
         if hasattr(self._agent, 'visualize'):
             self._agent.visualize(save_path)
