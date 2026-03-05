@@ -195,6 +195,9 @@ def main():
             target_update_freq=args.target_update
         )
         file_ext = ".pt"
+    elif args.agent == "random":
+        agent = Agent(AgentType.RANDOM, n_actions=args.Naction)   
+        file_ext = ".json"
     else:
         logger.warning(f"Using policy-based agent '{args.agent}', checkpointing will be skipped.")
 
@@ -292,8 +295,11 @@ def main():
             if agent is not None:
                 # Always save the 'latest' state
                 agent.save(str(latest_ckpt_path))
-                agent.visualize(save_path=str(latest_plot_path))
-                agent.plot_learning_curve(save_path=str(latest_curve_path))
+                try:
+                    agent.visualize(save_path=str(latest_plot_path), state_space=args.state_space)
+                    agent.plot_learning_curve(save_path=str(latest_curve_path))
+                except Exception as e:
+                    logger.warning(f"Failed to generate visualization or learning curve: {e}")
                 
                 # Periodically save historical checkpoints and visualizations
                 if ep % args.checkpoint_interval == 0:
@@ -301,7 +307,7 @@ def main():
                     plot_path = checkpoint_folder / f"agent_visualization_ep{ep}.png"
                     
                     agent.save(str(ckpt_path))
-                    agent.visualize(save_path=str(plot_path))
+                    agent.visualize(save_path=str(plot_path), state_space=args.state_space)
                     
                     logger.info(f"💾 Saved interval checkpoint and visualizations for Episode {ep}")
 
@@ -313,7 +319,7 @@ def main():
         if agent is not None:
             agent.save(str(latest_ckpt_path))
             try:
-                agent.visualize(save_path=str(latest_plot_path))
+                agent.visualize(save_path=str(latest_plot_path), state_space=args.state_space)
                 agent.plot_learning_curve(save_path=str(latest_curve_path))
             except Exception as e:
                 logger.warning(f"Skipping visualization: {e}")

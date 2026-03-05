@@ -280,7 +280,7 @@ class DQNAgent(BaseAgent):
         if reset_steps:
             self.total_steps = 0
     
-    def visualize(self, save_path=None):
+    def visualize(self, save_path=None, state_space=None):
         """Visualize DQN: Q-value heatmaps, action bar chart, and epsilon decay."""
         import matplotlib.pyplot as plt
         import numpy as np
@@ -295,6 +295,8 @@ class DQNAgent(BaseAgent):
 
         pending = 0
         distance_sweep = [0, 2, 4, 8, 10]
+        if state_space == "scale":
+            pending_sweep = [0, 1, 2, 3, 4]
         # replicas/8: 0.125 for 1, 0.25 for 2, 0.375 for 3 (target)
         replicas_norm = 0.375  # target=3
 
@@ -310,8 +312,12 @@ class DQNAgent(BaseAgent):
 
         for config in configs:
             states = []
-            for d in distance_sweep:
-                states.append([config["cpu"] / 4000, config["mem"] / 4096, pending / 5, d / 5, replicas_norm])
+            if state_space == "scale":
+                for p in pending_sweep:
+                    states.append([config["cpu"] / 4000, config["mem"] / 4096, p / 5, 2 / 15, 10/15])
+            else:
+                for d in distance_sweep:
+                    states.append([config["cpu"] / 4000, config["mem"] / 4096, pending / 5, d / 5, replicas_norm])
                 
             states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
             
@@ -352,6 +358,8 @@ class DQNAgent(BaseAgent):
 
         # Row 2: Q-value bar chart for typical state (distance=2, mid CPU/mem)
         typical_state = [1000 / 4000, 768 / 4096, 0, 2 / 5, replicas_norm]  # distance=2
+        if state_space == "scale":
+            typical_state = [1000 / 4000, 768 / 4096, 0, 2 / 15, 3/15]
         with torch.no_grad():
             typical_tensor = torch.tensor([typical_state], dtype=torch.float32, device=self.device)
             typical_q = self.q_net(typical_tensor).cpu().numpy().flatten()
