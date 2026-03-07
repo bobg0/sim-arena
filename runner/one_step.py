@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 # Add project root to Python path (must be before local imports)
 script_dir = Path(__file__).parent.absolute()
@@ -227,16 +228,30 @@ def one_step(
 ):
     random.seed(seed)
     
-    timestamp = datetime.now(timezone.utc).isoformat() 
-    local_trace_path = str(trace_path)
+    timestamp = datetime.now(timezone.utc).isoformat()
     tmp_dir = Path(".tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    trace_path_str = str(trace_path)
+    if trace_path_str.startswith("s3://"):
+        import boto3
+        parsed = urlparse(trace_path_str)
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        trace_filename = Path(key).name
+        local_trace_path = str(tmp_dir / trace_filename)
+        logger.info(f"Downloading s3://{bucket}/{key} -> {local_trace_path}")
+        s3 = boto3.client("s3")
+        s3.download_file(bucket, key, local_trace_path)
+        logger.info("S3 download complete.")
+    else:
+        local_trace_path = trace_path_str
+        trace_filename = Path(local_trace_path).name
 
     sim_id = deterministic_id(local_trace_path, namespace, deploy, target, timestamp)
     sim_name = f"diag-{sim_id}"
     out_trace_path = str(tmp_dir / f"trace-next-{sim_id}.msgpack")
 
-    trace_filename = Path(local_trace_path).name
     cluster_trace_path = f"file:///data/{trace_filename}"
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     virtual_namespace = "virtual-default"
