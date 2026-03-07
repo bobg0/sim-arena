@@ -1,4 +1,5 @@
 # env/sim_env.py
+import os
 import time
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -37,7 +38,7 @@ class SimEnv:
             raise
 
     def create(self, name, trace_path, namespace, duration_s,
-               driver_image: str = "quay.io/appliedcomputing/sk-driver:v2.4.2", 
+               driver_image: str | None = None,
                driver_port: int = 8888):
         """
         Try to create a Simulation CR; if the CRD is missing, create a ConfigMap as a harmless placeholder.
@@ -49,6 +50,8 @@ class SimEnv:
         duration_s: step window (seconds).
         driver_image, driver_port: defaults for SimKubes driver fields in the Simulation spec.
         """
+        if driver_image is None:
+            driver_image = os.environ.get("SIM_ARENA_DRIVER_IMAGE", "quay.io/appliedcomputing/sk-driver:v2.4.2")
         if self._crd_installed():
             # Simulation CRD is cluster-scoped, so don't include namespace in metadata
             # body = {

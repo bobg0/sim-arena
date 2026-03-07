@@ -1,4 +1,4 @@
-# Sim-Arena: Complete Architecture Guide
+ok# Sim-Arena: Complete Architecture Guide
 
 > **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy.
 
@@ -19,7 +19,7 @@
 
 ## What This System Does
 
-**Problem**: Kubernetes pods fail when they request too much or too little CPU/memory. Figuring out the right resource requests is hard.
+**Problem**: Kubernetes pods fail when they request too much or too little CPU/memory. Figuring out the right resource requests is hard. 
 
 **Solution**: Sim-Arena creates a "gym" where an AI agent can:
 1. Start a simulation of a failing Kubernetes workload (using SimKube)
