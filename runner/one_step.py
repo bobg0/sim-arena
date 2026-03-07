@@ -122,12 +122,16 @@ def wait_for_deployment(namespace: str, deploy: str, timeout: int | None = None)
 
 def _get_node_data_dir(kind_cluster: str) -> Path:
     """Path where trace files must be placed for SimKube to read them at file:///data/
-    Override with SIM_ARENA_NODE_DATA_DIR for EC2/remote setups (e.g. /var/kind/cluster).
+
+    Local:  kind worker mounts ~/.local/kind-node-data/<SIM_ARENA_KIND_CLUSTER> at /data.
+            SIM_ARENA_KIND_CLUSTER defaults to 'cluster' (the kind cluster name).
+    EC2:    set SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster to bypass entirely.
     """
     override = os.environ.get("SIM_ARENA_NODE_DATA_DIR")
     if override:
         return Path(override)
-    return Path.home() / ".local" / "kind-node-data" / kind_cluster
+    cluster_name = os.environ.get("SIM_ARENA_KIND_CLUSTER", "cluster")
+    return Path.home() / ".local" / "kind-node-data" / cluster_name
 
 # ---- Helper function to extract current resource state from trace ----
 def _extract_current_state(trace: list, deploy: str) -> dict:
@@ -280,9 +284,9 @@ def one_step(
         logger.debug("pre_start hooks completed.")
 
         # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
-        # isengard mounts ~/.local/kind-node-data/<kind_cluster> -> /data in the kind worker,
-        # but kind_cluster is named same as namespace by simkube
-        node_data_dir = _get_node_data_dir(namespace)
+        # Local: kind worker mounts ~/.local/kind-node-data/<SIM_ARENA_KIND_CLUSTER> at /data
+        # EC2: SIM_ARENA_NODE_DATA_DIR overrides the entire path
+        node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
         node_data_dir.mkdir(parents=True, exist_ok=True)
         dest_trace = node_data_dir / trace_filename
         shutil.copy2(local_trace_path, dest_trace)
