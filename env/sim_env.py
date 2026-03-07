@@ -80,16 +80,6 @@ class SimEnv:
                         "tracePath": trace_path,
                         "virtualNsPrefix": "virtual",  # Pods created in virtual-<namespace>
                     },
-                    "hooks": {
-                          "preStartHooks": [{
-                            "args": [
-                                "apply",
-                                "-f",
-                                "/config/kwok"
-                            ],
-                            "cmd": "kubectl"
-                        }]
-                    },
                     "duration": f"{int(duration_s)}s",
                 },
             }
