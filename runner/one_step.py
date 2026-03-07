@@ -294,6 +294,7 @@ def one_step(
         
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
+        sim_start = time.time()
         sim_uid = create_simulation(name=sim_name, trace_path=cluster_trace_path, duration_s=duration, namespace=namespace)
 
         # 2.5) Synchronize timer with the driver pod
@@ -302,9 +303,12 @@ def one_step(
         # 2.6) Wait for driver to apply trace (deployment must exist before we observe)
         wait_for_deployment(virtual_namespace, deploy)
 
-        # 3) wait fixed
-        logger.info(f"Waiting fixed duration: {duration}s ...")
-        wait_fixed(duration)
+        # 3) Wait remaining time so total window from sim creation == duration.
+        # Driver/deploy waits run inside the simulation window, not in addition to it.
+        elapsed = time.time() - sim_start
+        remaining = max(5, duration - elapsed)
+        logger.info(f"Waiting {remaining:.0f}s (of {duration}s window, {elapsed:.0f}s elapsed since sim creation)...")
+        wait_fixed(int(remaining))
         
         # 4) observe cluster state
         logger.debug(f"Observing cluster state in {virtual_namespace}...")
