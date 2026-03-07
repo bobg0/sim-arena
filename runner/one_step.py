@@ -58,8 +58,12 @@ SUMMARY_LOG = LOG_DIR / "summary.json"
 
 logger = logging.getLogger("one_step")
 
-def wait_for_driver_ready(sim_name: str, timeout: int = 150) -> bool:
-    """Polls Kubernetes until the SimKube driver pod is actively Running."""
+def wait_for_driver_ready(sim_name: str, timeout: int | None = None) -> bool:
+    """Polls Kubernetes until the SimKube driver pod is actively Running.
+    Timeout defaults to SIM_ARENA_DRIVER_TIMEOUT env var (default 60s locally, set to 150 on EC2).
+    """
+    if timeout is None:
+        timeout = int(os.environ.get("SIM_ARENA_DRIVER_TIMEOUT", "60"))
     import subprocess
 
     job_label = f"job-name=sk-{sim_name}-driver"
@@ -91,8 +95,12 @@ def wait_for_driver_ready(sim_name: str, timeout: int = 150) -> bool:
     logger.warning(f"Driver pod didn't enter Running state within {timeout}s buffer. Proceeding anyway.")
     return False
 
-def wait_for_deployment(namespace: str, deploy: str, timeout: int = 90) -> bool:
-    """Polls until the deployment exists (driver has applied the trace)."""
+def wait_for_deployment(namespace: str, deploy: str, timeout: int | None = None) -> bool:
+    """Polls until the deployment exists (driver has applied the trace).
+    Timeout defaults to SIM_ARENA_DEPLOY_TIMEOUT env var (default 30s locally, set to 90 on EC2).
+    """
+    if timeout is None:
+        timeout = int(os.environ.get("SIM_ARENA_DEPLOY_TIMEOUT", "30"))
     import subprocess
 
     logger.info(f"Waiting for deployment '{deploy}' in {namespace} (driver applying trace)...")

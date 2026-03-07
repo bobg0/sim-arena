@@ -151,6 +151,10 @@ pip install -r requirements.txt
 ```bash
 export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
 export PYTHONPATH=.
+
+# EC2 needs longer timeouts than local (drivers/deployments start slower on EC2)
+export SIM_ARENA_DRIVER_TIMEOUT=150    # default 60 on local
+export SIM_ARENA_DEPLOY_TIMEOUT=90     # default 30 on local
 ```
 
 **If you hit `--virtual-ns-prefix` driver error** (older SimKube controller):
@@ -232,6 +236,8 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```bash
 cd ~/work/sim-arena && source .venv/bin/activate
 export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
+export SIM_ARENA_DRIVER_TIMEOUT=150
+export SIM_ARENA_DEPLOY_TIMEOUT=90
 export PYTHONPATH=.
 # export SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.0  # if needed
 
