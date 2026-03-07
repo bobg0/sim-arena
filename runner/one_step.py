@@ -256,15 +256,18 @@ def one_step(
         s3 = boto3.client("s3")
         s3.download_file(bucket, key, local_trace_path)
         logger.info("S3 download complete.")
+        # Pass the S3 URL directly to the SimKube driver — the driver pod uses
+        # the 'simkube' Kubernetes secret (AWS credentials) to download from S3.
+        # This is the intended workflow per the advisor's setup instructions.
+        cluster_trace_path = trace_path_str
     else:
         local_trace_path = trace_path_str
         trace_filename = Path(local_trace_path).name
+        cluster_trace_path = f"file:///data/{trace_filename}"
 
     sim_id = deterministic_id(local_trace_path, namespace, deploy, target, timestamp)
     sim_name = f"diag-{sim_id}"
     out_trace_path = str(tmp_dir / f"trace-next-{sim_id}.msgpack")
-
-    cluster_trace_path = f"file:///data/{trace_filename}"
     sim_name = f"diag-{deterministic_id(local_trace_path, namespace, deploy, target, timestamp)}"
     virtual_namespace = "virtual-default"
     
@@ -284,13 +287,13 @@ def one_step(
         logger.debug("pre_start hooks completed.")
 
         # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
-        # Local: kind worker mounts ~/.local/kind-node-data/<SIM_ARENA_KIND_CLUSTER> at /data
-        # EC2: SIM_ARENA_NODE_DATA_DIR overrides the entire path
-        node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
-        node_data_dir.mkdir(parents=True, exist_ok=True)
-        dest_trace = node_data_dir / trace_filename
-        shutil.copy2(local_trace_path, dest_trace)
-        logger.debug(f"Copied input trace to {dest_trace} (accessible at file:///data/{trace_filename})")
+        # Only needed for file:// traces — S3 traces are downloaded directly by the driver pod.
+        if not cluster_trace_path.startswith("s3://"):
+            node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
+            node_data_dir.mkdir(parents=True, exist_ok=True)
+            dest_trace = node_data_dir / trace_filename
+            shutil.copy2(local_trace_path, dest_trace)
+            logger.debug(f"Copied input trace to {dest_trace} (accessible at file:///data/{trace_filename})")
         
         # 2) create simulation CR
         logger.debug("Creating simulation CR...")
