@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | AMI name | `simkube-simarena-s3-ready-2026-03-08` |
-| AMI ID | *(fill in after creation)* |
+| AMI ID | `ami-08d19a1b7f569b848` |
 | Region | `us-east-2` (US East — Ohio) |
 | Instance type | `t3.large` |
 | Key pair | `diya_simkube_key.pem` |
