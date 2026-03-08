@@ -51,7 +51,7 @@ class SimEnv:
         driver_image, driver_port: defaults for SimKubes driver fields in the Simulation spec.
         """
         if driver_image is None:
-            driver_image = os.environ.get("SIM_ARENA_DRIVER_IMAGE", "quay.io/appliedcomputing/sk-driver:v2.4.1")
+            driver_image = os.environ.get("SIM_ARENA_DRIVER_IMAGE", "quay.io/appliedcomputing/sk-driver:v2.4.4")
         if self._crd_installed():
             # Simulation CRD is cluster-scoped, so don't include namespace in metadata
             # body = {
