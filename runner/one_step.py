@@ -286,11 +286,13 @@ def one_step(
         run_hooks("pre_start", virtual_namespace, deploy=deploy)
         logger.debug("pre_start hooks completed.")
 
-        # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node)
-        # Only needed for file:// traces — S3 traces are downloaded directly by the driver pod.
+        # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node).
+        # For file:// traces this is required for the driver pod to read the trace.
+        # For S3 traces the driver pod downloads directly, but we still set up node_data_dir
+        # so the output trace can be copied there for use by subsequent steps.
+        node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
+        node_data_dir.mkdir(parents=True, exist_ok=True)
         if not cluster_trace_path.startswith("s3://"):
-            node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
-            node_data_dir.mkdir(parents=True, exist_ok=True)
             dest_trace = node_data_dir / trace_filename
             shutil.copy2(local_trace_path, dest_trace)
             logger.debug(f"Copied input trace to {dest_trace} (accessible at file:///data/{trace_filename})")
