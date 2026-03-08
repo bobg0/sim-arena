@@ -107,6 +107,7 @@ python runner/train.py \
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Deployment 'web' not found within 90s` | Driver pod failing | Check `kubectl logs -n simkube -l job-name=sk-diag-*` |
-| `error: unexpected argument '--virtual-ns-prefix'` | Driver image version mismatch | Set `SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.1` |
+| `error: unexpected argument '--virtual-ns-prefix'` | Driver newer than controller | Set `SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.1` |
+| `--virtual-ns-prefix required but not provided` | Driver older than controller (v2.4.4+) | Set `SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.4` |
 | `Received redirect without LOCATION` | Wrong S3 region in cluster secret | Run: `kubectl create secret generic simkube -n simkube --from-literal=AWS_DEFAULT_REGION=us-east-2 --dry-run=client -o yaml \| kubectl apply -f -` |
 | `FileNotFoundError: 's3://...'` | Old code trying to copy S3 path locally | `git pull` to get the S3 direct-pass fix |
