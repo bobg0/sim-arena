@@ -1,186 +1,233 @@
-# Sim-Arena on EC2 — Setup from Scratch
+# Sim-Arena AMI Setup Guide for Teammates
 
-Complete guide for a **new EC2 instance** with SimKube. Do these steps in order.
+This guide explains how to **launch and use the prebuilt SimKube + SimArena AMI**. You do not set up from scratch — you start from the AMI and use the **S3-based trace workflow**.
 
 ---
 
-## Part 1: SSH into EC2
+## Quick Start
+
+1. **Launch** an EC2 instance from AMI `simkube-simarena-s3-ready-2026-03-08` (ID: `ami-08d19a1b7f569b848`) in **us-east-2**.
+2. **SSH** in: `ssh -i your_key.pem ubuntu@<EC2_PUBLIC_IP>` (after `chmod 400 your_key.pem`).
+3. **Verify cluster:** `unset KUBECONFIG` then `kubectl get nodes` and `kubectl get pods -A`.
+4. **Set env and secret:** `source ~/.bashrc`, then create the `simkube` Kubernetes secret with your AWS credentials (see §5).
+5. **Run a test:** `cd ~/work/sim-arena && source .venv/bin/activate` then run `one_step.py` or `train.py` with an **S3 trace path** (e.g. `s3://your-bucket/demo/trace-mem-slight.msgpack`).
+
+Details are below.
+
+---
+
+## AMI details
+
+Use this AMI:
+
+| Field | Value |
+|-------|--------|
+| **AMI name** | simkube-simarena-s3-ready-2026-03-08 |
+| **AMI ID** | ami-08d19a1b7f569b848 |
+| **Region** | us-east-2 (Ohio) |
+| **Source AMI** | ami-01da5cfeb3e315b66 (SimKube Free AMI) |
+| **Owner account** | 664926621123 |
+
+This AMI already includes:
+
+- SimKube
+- sim-arena
+- Python virtual environment and dependencies
+- S3-based trace workflow support
+
+---
+
+## 1. Launch an EC2 instance from the AMI
+
+**In AWS Console:**
+
+1. Go to **EC2**
+2. Go to **AMIs**
+3. Find **simkube-simarena-s3-ready-2026-03-08**
+4. Click **Launch instance from AMI**
+
+**Recommended settings:**
+
+- **Region:** us-east-2
+- **Instance type:** at least **c6a.xlarge**
+- **Key pair:** choose your SSH key
+- **Security group:** allow SSH from your IP only
+- **Storage:** 100 GB gp3 is a good default
+
+Launch the instance and wait until:
+
+- **Instance state** = Running
+- **Status checks** = 2/2
+
+---
+
+## 2. SSH into the instance
+
+From your laptop:
 
 ```bash
-# From your Mac
 chmod 400 your_key.pem
 ssh -i your_key.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-**If `Permission denied`:** run `chmod 400 your_key.pem` on the key file.
+If SSH says the key permissions are too open:
+
+```bash
+chmod 400 your_key.pem
+```
 
 ---
 
-## Part 2: Fix kubectl (important on new instances)
+## 3. Verify the cluster is healthy
 
-SimKube may pre-create a placeholder. Use the correct kubeconfig:
+After SSHing in, run:
 
 ```bash
-# /etc/kind/cluster is a DIRECTORY, not the config file. Do NOT set KUBECONFIG to it.
 unset KUBECONFIG
-
-# kubectl uses ~/.kube/config by default
 kubectl get nodes
 kubectl get pods -A
 ```
 
-**If `kubectl get nodes` fails with Forbidden:** `unset KUBECONFIG` and try again.  
-**If you see `read /etc/kind/cluster: is a directory`:** you set KUBECONFIG wrong; unset it.
+**Important:**
+
+- **Do not** set `KUBECONFIG=/etc/kind/cluster` — `/etc/kind/cluster` is a **directory**, not the kubeconfig file.
+- The instance already has the correct kubeconfig in `~/.kube/config`.
+
+**Expected:**
+
+- `cluster-control-plane` and `cluster-worker` should be **Ready**
+- SimKube pods in namespace `simkube` should be running
 
 ---
 
-## Part 3: Cluster permissions
+## 4. Required environment variables
+
+This AMI is intended to use **S3-hosted traces**.
+
+Set these in your shell:
 
 ```bash
-# Node data path (SimKube prints this on login)
-sudo chown -R ubuntu:ubuntu /var/kind/cluster
+source ~/.bashrc
 ```
+
+If needed, you can set them manually:
+
+```bash
+export AWS_ACCESS_KEY_ID=<your-access-key-id>
+export AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
+export AWS_DEFAULT_REGION=us-east-2
+
+export SIM_ARENA_DRIVER_TIMEOUT=150
+export SIM_ARENA_DEPLOY_TIMEOUT=90
+export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
+export PYTHONPATH=/home/ubuntu/work/sim-arena
+```
+
+**Notes:**
+
+- `SIM_ARENA_DRIVER_TIMEOUT` and `SIM_ARENA_DEPLOY_TIMEOUT` are increased because EC2 is slower than local runs.
+- `SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster` is required because that is the SimKube node data path.
 
 ---
 
-## Part 4: S3 setup (advisor’s instructions)
+## 5. S3 + Kubernetes secret setup
 
-Do this so the SimKube driver can read traces from S3. **Do it once per cluster.**
+Each cluster needs AWS credentials injected into the SimKube namespace so the driver can read traces from S3.
 
-### 4.1 Create S3 bucket (AWS Console)
+### 5.1 Create or update the simkube secret
 
-- S3 → Create bucket → pick a name (e.g. `simkube-traces`)
-- Region: same as your EC2
-- Create
-
-### 4.2 Create IAM policy
-
-IAM → Policies → Create policy → JSON:
-
-```json
-{
-    "Statement": [
-        {
-            "Action": [
-                "s3:PutObject",
-                "s3:GetObject",
-                "s3:ListBucket",
-                "s3:DeleteObject"
-            ],
-            "Effect": "Allow",
-            "Resource": [
-                "arn:aws:s3:::YOUR-BUCKET-NAME/*",
-                "arn:aws:s3:::YOUR-BUCKET-NAME"
-            ],
-            "Sid": "SimKubeAccessS3"
-        }
-    ],
-    "Version": "2012-10-17"
-}
-```
-
-Replace `YOUR-BUCKET-NAME` with your bucket. Or use `"Resource": ["*"]` for all buckets.
-
-Name the policy (e.g. `SimKubeS3Access`) → Create.
-
-### 4.3 Create IAM user and access key
-
-- IAM → Users → Create user (e.g. `simkube-s3`)
-- Attach the policy you created
-- Create user
-- Open the user → Security credentials → Create access key
-- Choose “Application running outside AWS” (or similar)
-- **Save Access Key ID and Secret Access Key** — the secret is shown only once
-
-**Do not commit these to GitHub or share them.**
-
-### 4.4 Create Kubernetes secret on EC2
-
-SSH into EC2, then:
+Run on the EC2 instance:
 
 ```bash
 kubectl create secret generic simkube -n simkube \
   --from-literal=AWS_ACCESS_KEY_ID=<your-access-key-id> \
-  --from-literal=AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
+  --from-literal=AWS_SECRET_ACCESS_KEY=<your-secret-access-key> \
+  --from-literal=AWS_DEFAULT_REGION=us-east-2 \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-**If `secrets "simkube" already exists`:**
+Then verify:
 
 ```bash
-kubectl delete secret -n simkube simkube
-# Then re-run the create command above
+kubectl get secret -n simkube
 ```
 
-**Optional:** Bake this into a new AMI so you don’t repeat it on new instances.
+Expected output includes **simkube**.
 
-### 4.5 Using S3 traces
+### 5.2 S3 bucket permissions
 
-With the secret in place, the SimKube driver can use `s3://your-bucket/path/to/trace.msgpack` as the trace path. **sim-arena currently uses local files** (see Part 6). S3 is for `skctl` or future sim-arena support.
+The IAM user used for the secret must have a policy that allows:
+
+- `s3:GetObject`
+- `s3:PutObject`
+- `s3:ListBucket`
+- `s3:DeleteObject`
+
+for the relevant bucket.
+
+**Example policy:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SimKubeAccessS3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR-BUCKET-NAME",
+        "arn:aws:s3:::YOUR-BUCKET-NAME/*"
+      ]
+    }
+  ]
+}
+```
+
+Replace `YOUR-BUCKET-NAME` with your bucket name.
 
 ---
 
-## Part 5: sim-arena setup
+## 6. Repository location
 
-### 5.1 System packages
-
-```bash
-sudo apt-get update -y
-sudo apt-get install -y git python3-venv python3-pip
-```
-
-If you see `Too many open files`: `ulimit -n 4096`
-
-### 5.2 Clone and install
-
-```bash
-mkdir -p ~/work
-cd ~/work
-git clone https://github.com/bobg0/sim-arena.git
-cd sim-arena
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip wheel
-pip install -r requirements.txt
-```
-
-*(Torch + CUDA can take 10–20 minutes.)*
-
-### 5.3 Environment variables
-
-```bash
-export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
-export PYTHONPATH=.
-
-# EC2 needs longer timeouts than local (drivers/deployments start slower on EC2)
-export SIM_ARENA_DRIVER_TIMEOUT=150    # default 60 on local
-export SIM_ARENA_DEPLOY_TIMEOUT=90     # default 30 on local
-```
-
-**If you hit `--virtual-ns-prefix` driver error** (older SimKube controller):
-
-```bash
-export SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.0
-```
-
----
-
-## Part 6: Run a test (local file traces)
-
-sim-arena uses **local files** by default. Copy the trace to the node data path:
+The repo is already on the instance here:
 
 ```bash
 cd ~/work/sim-arena
 source .venv/bin/activate
-export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
-export PYTHONPATH=.
-# Add if needed: export SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.0
+```
 
-cp demo/trace-0001.msgpack /var/kind/cluster/
+If you want the latest code:
+
+```bash
+git pull
+```
+
+---
+
+## 7. Running a single-step test
+
+Use an **S3 trace path**, for example:
+
+```
+s3://diya-simarena-traces/demo/trace-mem-slight.msgpack
+```
+
+Then run:
+
+```bash
+cd ~/work/sim-arena
+source .venv/bin/activate
+source ~/.bashrc
 
 python runner/one_step.py \
-  --trace demo/trace-0001.msgpack \
-  --ns virtual-default \
+  --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
+  --ns default \
   --deploy web \
   --target 3 \
   --duration 40 \
@@ -188,59 +235,152 @@ python runner/one_step.py \
   --log-level INFO
 ```
 
-**Expected:** Simulation created, driver runs, observation printed.
+**Expected successful output** includes lines like:
 
-### Short training run
+```
+Deployment 'web' found
+Observation: {'ready': 0, 'pending': 3, 'total': 3}
+Step Summary: action=bump_cpu_small, reward=...
+```
+
+---
+
+## 8. Running a short training test
+
+Once `one_step.py` works, test training:
 
 ```bash
+cd ~/work/sim-arena
+source .venv/bin/activate
+source ~/.bashrc
+
 python runner/train.py \
-  --trace demo/trace-0001.msgpack \
-  --ns virtual-default \
+  --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
+  --ns default \
   --deploy web \
   --target 3 \
   --agent greedy \
   --episodes 2 \
-  --steps 5 \
+  --steps 3 \
   --duration 40
 ```
 
----
+Training logs are written under:
 
-## Part 7: Optional — CPU-only PyTorch
-
-If you don’t need GPU:
-
-```bash
-pip uninstall torch -y
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+~/work/sim-arena/checkpoints/
 ```
 
 ---
 
-## Troubleshooting
+## 9. Common problems
 
-| Issue | Fix |
-|-------|-----|
-| `Load key "*.pem": bad permissions` | `chmod 400 your_key.pem` |
-| `kubectl get nodes` → Forbidden or `is a directory` | `unset KUBECONFIG` |
-| `Too many open files` | `ulimit -n 4096` |
-| Trace not found | `ls /var/kind/cluster/` — trace must be there; set `SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster` |
-| Deployment 'web' not found (404) | Driver slow or failing. Check logs: `kubectl logs -n simkube -l job-name=sk-<sim_name>-driver` |
-| `error: unexpected argument '--virtual-ns-prefix' found` | `export SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.0` |
-| Many pods in Error/CrashLoopBackOff | Wait 3–5 min after instance start. If it persists, ask your advisor. |
+### `kubectl get nodes` says Forbidden
+
+Run:
+
+```bash
+unset KUBECONFIG
+kubectl get nodes
+```
+
+Do **not** point `KUBECONFIG` at `/etc/kind/cluster`.
 
 ---
 
-## Quick reference — full run
+### Deployment 'web' not found
+
+Check:
+
+- That the trace path exists in S3
+- That the `simkube` secret exists in namespace `simkube`
+- That the AWS credentials are valid
+- That the bucket is in the expected region
+- That the IAM policy includes S3 read permissions
+
+Also check:
 
 ```bash
-cd ~/work/sim-arena && source .venv/bin/activate
-export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
-export SIM_ARENA_DRIVER_TIMEOUT=150
-export SIM_ARENA_DEPLOY_TIMEOUT=90
-export PYTHONPATH=.
-# export SIM_ARENA_DRIVER_IMAGE=quay.io/appliedcomputing/sk-driver:v2.4.0  # if needed
-
-cp demo/trace-0001.msgpack /var/kind/cluster/
-python runner/one_step.py --trace demo/trace-0001.msgpack --ns virtual-default --deploy web --target 3 --duration 40 --agent bump_cpu --log-level INFO
+kubectl get pods -n simkube
+kubectl logs -n simkube sk-ctrl-depl-<pod-name> --tail=100
 ```
+
+---
+
+### AccessDenied from S3
+
+The IAM user does not have the right bucket permissions. Fix the policy and recreate/update the `simkube` secret.
+
+---
+
+### Load key "*.pem": bad permissions
+
+Run on your laptop:
+
+```bash
+chmod 400 your_key.pem
+```
+
+---
+
+### Too many open files
+
+Run:
+
+```bash
+ulimit -n 4096
+```
+
+---
+
+## 10. Daily workflow
+
+**Start working**
+
+1. Launch instance from AMI
+2. SSH in
+3. Run:
+
+   ```bash
+   cd ~/work/sim-arena
+   source .venv/bin/activate
+   source ~/.bashrc
+   unset KUBECONFIG
+   kubectl get nodes
+   ```
+
+4. Run `one_step.py` or `train.py` with S3 trace paths
+
+**End of day**
+
+- If you are done and do not need the instance: **terminate** it
+- If you want to keep the same running machine: **stop** it
+- If you changed the setup and want to preserve it for everyone: **create a new AMI**
+
+---
+
+## 11. Launch recipe
+
+Keep this with the guide:
+
+| Item | Value |
+|------|--------|
+| AMI name | simkube-simarena-s3-ready-2026-03-08 |
+| AMI ID | ami-08d19a1b7f569b848 |
+| Region | us-east-2 |
+| Recommended instance type | c6a.xlarge |
+| SSH user | ubuntu |
+| Node data path | /var/kind/cluster |
+| Repo path | ~/work/sim-arena |
+
+---
+
+## 12. Security note
+
+**Do not** commit AWS access keys to GitHub or paste them into shared docs.
+
+Use:
+
+- IAM user with minimal S3 permissions
+- Kubernetes secret in namespace `simkube`
+- Rotated credentials if a key is ever exposed
