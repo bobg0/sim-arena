@@ -31,3 +31,7 @@ reward
 trace paths
 runs/summary.json will be updated with totals.
 .tmp/trace-next.msgpack will be created and can be used for the next step.
+
+## 🚀 Quickstart: Gymnasium Environment
+
+We've wrapped our SimKube simulation loop into a standard [Gymnasium](https://gymnasium.farama.org/) environment. This makes it plug-and-play with standard reinforcement learning libraries like Stable Baselines3 or Ray RLlib.

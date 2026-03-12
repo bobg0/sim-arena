@@ -1,3 +1,11 @@
+from gymnasium.envs.registration import register
+
+register(
+    id="SimKube-v0",
+    entry_point="env.simkube_gymenv:SimKubeEnv",
+)
+
+
 """Environment module for creating and managing SimKube simulations."""
 
 def _get_env():
@@ -54,4 +62,3 @@ def delete_simulation(name: str, namespace: str) -> None:
     """
     env = _get_env()
     env.delete(name=name, namespace=namespace)
-
