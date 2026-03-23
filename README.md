@@ -1,10 +1,11 @@
-ok# Sim-Arena: Complete Architecture Guide
+# Sim-Arena
 
-> **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy.
+> **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy. Now also supports **LLM benchmarking** — Gemini and Claude models can be evaluated on the same scenarios using live Kubernetes tool access via MCP.
 
 ---
 
 ## Table of Contents
+
 1. [What This System Does](#what-this-system-does)
 2. [The Big Picture](#the-big-picture)
 3. [Directory Structure](#directory-structure)
@@ -13,13 +14,14 @@ ok# Sim-Arena: Complete Architecture Guide
 6. [The Agent Loop Flow](#the-agent-loop-flow)
 7. [Key Concepts](#key-concepts)
 8. [How to Use](#how-to-use)
-9. [For Future Development](#for-future-development)
+9. [LLM Benchmarking](#llm-benchmarking)
+10. [For Future Development](#for-future-development)
 
 ---
 
 ## What This System Does
 
-**Problem**: Kubernetes pods fail when they request too much or too little CPU/memory. Figuring out the right resource requests is hard. 
+**Problem**: Kubernetes pods fail when they request too much or too little CPU/memory. Figuring out the right resource requests is hard.
 
 **Solution**: Sim-Arena creates a "gym" where an AI agent can:
 1. Start a simulation of a failing Kubernetes workload (using SimKube)
@@ -28,7 +30,9 @@ ok# Sim-Arena: Complete Architecture Guide
 4. Get a reward (shaped or binary based on pod health)
 5. Learn over time which actions fix which problems
 
-**Current Stage**: Fully working training loop with DQN and Epsilon-Greedy agents, plus hand-coded fallback policies. Checkpointing, visualization, and learning curve tracking are all supported.
+**RL Training**: Fully working training loop with DQN and Epsilon-Greedy agents, plus hand-coded fallback policies. Checkpointing, visualization, and learning curve tracking are all supported.
+
+**LLM Benchmarking**: LLM agents (Gemini, Claude) can be evaluated on the same scenarios. They use MCP tools to query the live cluster — pod states, events, logs, deployment config — before deciding on an action. Both RL and LLM agents share the same action space and reward functions.
 
 ---
 
@@ -36,7 +40,7 @@ ok# Sim-Arena: Complete Architecture Guide
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     TRAINING LOOP                           │
+│                     TRAINING LOOP (RL)                      │
 └─────────────────────────────────────────────────────────────┘
 
 for each episode:
@@ -59,6 +63,27 @@ for each episode:
   8. Checkpoint & Visualize
      ↓
   Output: Updated agent weights + logs + plots
+
+┌─────────────────────────────────────────────────────────────┐
+│                  BENCHMARK LOOP (LLM)                       │
+└─────────────────────────────────────────────────────────────┘
+
+for each scenario:
+  Input: Trace file + LLM provider (Gemini / Claude)
+     ↓
+  1. Create Simulation (same SimKube infrastructure)
+     ↓
+  2. Observe base pod state
+     ↓
+  3. LLM queries MCP tools (get_pods, get_events, describe_deployment, get_pod_logs)
+     ↓
+  4. LLM decides action → same ACTION_SPACE as RL agents
+     ↓
+  5. Apply Action + Compute Reward (same functions)
+     ↓
+  6. Record metrics (steps, reward, tool calls, latency, solved)
+     ↓
+  Output: report.json + report.md in benchmark/results/
 ```
 
 ---
@@ -69,17 +94,40 @@ for each episode:
 sim-arena/
 │
 ├── runner/                    # Orchestration
-│   ├── train.py              # ★ Main training loop (multi-episode, checkpointing)
-│   ├── one_step.py           # Run ONE agent step
+│   ├── train.py              # ★ Main RL training loop (multi-episode, checkpointing)
+│   ├── one_step.py           # Run ONE agent step (RL or LLM)
 │   ├── multi_step.py         # Run ONE episode (many steps)
 │   ├── policies.py           # Hand-coded fallback policies
 │   └── safeguards.py         # Resource limit validation
 │
-├── agent/                     # ★ Learning agents
+├── agent/                     # ★ All agent implementations
 │   ├── agent.py              # Agent factory (AgentType enum + unified Agent class)
 │   ├── dqn.py                # Deep Q-Network implementation
 │   ├── eps_greedy.py         # Epsilon-Greedy tabular agent
-│   └── __init__.py
+│   ├── llm_agent.py          # ★ LLM agent (provider-agnostic, uses MCP tools)
+│   ├── prompt_builder.py     # Builds system + user prompts from obs dict
+│   ├── action_parser.py      # Parses LLM JSON response → action index
+│   └── providers/            # ★ LLM provider implementations
+│       ├── base.py           # LLMProvider abstract base class
+│       ├── gemini_provider.py  # Google Gemini (google-genai SDK)
+│       └── anthropic_provider.py  # Anthropic Claude
+│
+├── sim_mcp/                   # ★ MCP server: Kubernetes observability tools
+│   ├── server.py             # FastMCP server (runs as stdio subprocess)
+│   ├── client.py             # MCPClientSync wrapper used by LLMAgent
+│   └── tools/
+│       ├── _k8s.py           # Shared Kubernetes client loader
+│       ├── pods.py           # get_pods(namespace)
+│       ├── deployments.py    # describe_deployment(namespace, deploy)
+│       ├── events.py         # get_events(namespace, deploy, last_n)
+│       └── logs.py           # get_pod_logs(namespace, pod_name, tail_lines)
+│
+├── benchmark/                 # ★ LLM benchmark harness
+│   ├── run.py                # Entry point: python benchmark/run.py --provider gemini
+│   ├── metrics.py            # Per-step + per-episode metric collection & reports
+│   └── scenarios/
+│       ├── index.json        # Scenario registry (name, trace, target, problem_type)
+│       └── __init__.py       # load_scenarios() helper
 │
 ├── env/                       # Environment (simulation wrapper)
 │   ├── sim_env.py            # Create/delete SimKube simulations
@@ -102,12 +150,10 @@ sim-arena/
 │   ├── generate_traces.py    # Script to make more traces
 │   └── *.py                  # Conversion helpers (json2msg, normalize, etc.)
 │
-├── checkpoints/               # ★ Auto-saved agent checkpoints
-│
+├── checkpoints/               # ★ Auto-saved RL agent checkpoints
 ├── tests/                     # Unit & integration tests
-├── runs/                      # Per-step output logs
-│   ├── step.jsonl
-│   └── summary.json
+├── runs/                      # Per-step output logs (step.jsonl, summary.json)
+├── .env.example               # API key template — copy to .env and fill in
 └── docs/archive/              # Archived design docs
 ```
 
@@ -126,117 +172,75 @@ SimKube creates pods in a **virtual namespace** derived from the trace: `virtual
 
 ## How Everything Fits Together
 
-### The Training Flow (Step by Step)
+### The RL Training Flow (Step by Step)
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ USER RUNS:                                                   │
-│ nohup python runner/train.py                                 │
-│   --trace demo/trace-0001.msgpack                            │
-│   --ns virtual-default --deploy web --target 3               │
-│   --agent dqn --episodes 50 &                                │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ train.py: SETUP                                              │
-│  - Parse args, resolve seed, create checkpoint folder        │
-│  - Redirect stdout+stderr → checkpoints/<run>/train.log      │
-│  - Write command.txt with full args                          │
-│  - Initialize Agent (DQN or Epsilon-Greedy)                  │
-│  - Optionally load checkpoint via --load                     │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ train.py: for each episode                                   │
-│  → runner/multi_step.py: run_episode()                       │
-│     → runner/one_step.py: one_step() × max_steps             │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: PREFLIGHT (ops/preflight.py)                    │
-│  - Cluster accessible, SimKube CRDs exist, namespace clean   │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: CREATE SIMULATION (env/sim_env.py)              │
-│  - Load trace file → Create SimKube Simulation CR            │
-│  - SimKube replays the trace (pods start appearing)          │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: WAIT (duration seconds)                         │
-│  - Pods fail because CPU/memory requests are misconfigured   │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: OBSERVE (observe/reader.py)                     │
-│  - Query Kubernetes API, count pods:                         │
-│    {"ready": 0, "pending": 3, "total": 3}                    │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: AGENT DECISION (agent/agent.py)                 │
-│  - DQN: forward pass on obs vector → argmax Q-value          │
-│  - Greedy: epsilon-greedy lookup → action index              │
-│  - Fallback: policy from runner/policies.py                  │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: APPLY ACTION (env/actions/ops.py)               │
-│  - Load trace, modify resources (e.g. CPU 500m → 1000m)      │
-│  - Save modified trace                                       │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: COMPUTE REWARD (observe/reward.py)              │
-│  - base:        1 if ready==target and pending==0, else 0    │
-│  - shaped:      continuous −1 to 1, distance-based           │
-│  - cost_aware_v2: all negative except 0 at goal; health+cost │
-│  - max_punish:  base + penalties for over-allocation         │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ one_step.py: LOG & CLEANUP                                   │
-│  - Write to runs/step.jsonl, runs/summary.json               │
-│  - Delete Simulation CR                                      │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ train.py: AGENT LEARN + CHECKPOINT                           │
-│  - Agent updates weights (replay buffer + target network)    │
-│  - Every step:    save checkpoint_latest + latest plots      │
-│  - Every N eps:   save checkpoint_ep<N> + per-ep plot        │
-│  - On interrupt:  graceful save in finally block             │
-└──────────────────────────────────────────────────────────────┘
+USER RUNS:
+  python runner/train.py --trace demo/trace-0001.msgpack --ns virtual-default --agent dqn
+
+train.py: SETUP
+  - Parse args, resolve seed, create checkpoint folder
+  - Redirect stdout+stderr → checkpoints/<run>/train.log
+  - Initialize Agent (DQN or Epsilon-Greedy)
+
+train.py: for each episode
+  → runner/multi_step.py: run_episode()
+     → runner/one_step.py: one_step() × max_steps
+
+one_step.py:
+  1. PREFLIGHT      — cluster accessible, SimKube CRDs exist, namespace clean
+  2. CREATE SIM     — SimKube Simulation CR created, pods start appearing
+  3. WAIT           — duration seconds for pod state to stabilise
+  4. OBSERVE        — {"ready": 0, "pending": 3, "total": 3}
+  5. AGENT DECISION — DQN forward pass or epsilon-greedy lookup → action index
+  6. APPLY ACTION   — load trace, mutate resources, save trace
+  7. COMPUTE REWARD — shaped / base / cost_aware_v2 / max_punish
+  8. LOG & CLEANUP  — write step.jsonl, delete Simulation CR
+
+train.py: AGENT LEARN + CHECKPOINT
+  - Update Q-network / replay buffer
+  - Save checkpoint_latest + learning curve plots
+  - Save checkpoint_epN every N episodes
+```
+
+### The LLM Benchmark Flow
+
+```
+USER RUNS:
+  python benchmark/run.py --provider gemini --ns virtual-default
+
+benchmark/run.py:
+  1. Load scenarios from benchmark/scenarios/index.json
+  2. Start MCP server subprocess (sim_mcp/server.py via MCPClientSync)
+  3. For each scenario:
+       → run_episode() from runner/multi_step.py  [unchanged from RL]
+          → one_step() with agent_name="llm"
+             → LLMAgent.act(obs, namespace, deploy, ...)
+                1. Build prompt from obs + scenario context
+                2. Call LLM API with 4 MCP tools attached
+                3. LLM calls tools 0–N times autonomously:
+                     get_pods / describe_deployment / get_events / get_pod_logs
+                4. LLM returns JSON → action index (same ACTION_SPACE)
+  4. Record: steps_to_solve, reward, tool_calls, latency, solved
+  5. Write benchmark/results/<timestamp>/report.json + report.md
 ```
 
 ---
 
 ## Detailed Component Breakdown
 
-### 1. `runner/train.py` — **THE MAIN ENTRY POINT**
+### RL Components
+
+#### `runner/train.py` — Main RL Entry Point
 
 Orchestrates the full training run across multiple episodes.
 
-**Key responsibilities:**
-- Parses all CLI arguments including DQN hyperparameters
-- Resolves a random seed (or uses `--seed`) and propagates `base_seed + ep * 1000` per episode for reproducibility
-- Creates a timestamped checkpoint folder under `checkpoints/<agent>_<YYYYMMDD_HH>/`
-- Redirects OS-level stdout and stderr to `train.log` (works with `nohup`)
-- Writes `command.txt` with the exact invocation and all parsed args
-- Initializes an `Agent` (DQN or Epsilon-Greedy) and optionally loads from `--load`
-- Calls `run_episode()` in a loop; on each episode saves `checkpoint_latest`, `agent_visualization_latest.png`, and `learning_curve_latest.png`
-- At `--checkpoint-interval` boundaries, also saves per-episode snapshots
-- Gracefully handles `KeyboardInterrupt` and always runs final saves in `finally`
-
-**CLI flags (selected):**
-
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--trace` | required | Initial trace file |
+| `--trace` | required | Initial trace file or directory |
 | `--ns` | required | Kubernetes namespace |
 | `--target` | required | Target pod count |
-| `--agent` | `greedy` | `greedy` or `dqn` |
+| `--agent` | `greedy` | `greedy`, `dqn`, or `random` |
 | `--episodes` | 200 | Total training episodes |
 | `--steps` | 200 | Max steps per episode |
 | `--duration` | 40 | Seconds per sim step |
@@ -248,132 +252,80 @@ Orchestrates the full training run across multiple episodes.
 | `--seed` | random | Base random seed |
 | `--lr` | 0.001 | DQN learning rate |
 | `--gamma` | 0.97 | DQN discount factor |
-| `--eps-start` | 1.0 | Initial epsilon |
-| `--eps-end` | 0.1 | Final epsilon |
-| `--eps-decay` | 1000 | Epsilon decay steps |
-| `--buffer-size` | 2000 | Replay buffer capacity |
-| `--batch-size` | 32 | DQN minibatch size |
-| `--target-update` | 50 | Target network sync frequency |
-| `--step-penalty` | 0 | Per-step penalty (for `cost_aware_v2`; favors faster fixes) |
+| `--step-penalty` | 0 | Per-step penalty for `cost_aware_v2` |
 
----
+#### `agent/agent.py` — Agent Factory
 
-### 2. `agent/agent.py` — **AGENT FACTORY**
-
-Wraps DQN and Epsilon-Greedy behind a single `Agent` interface.
+Wraps all agent types behind a single `Agent` interface.
 
 ```python
-agent = Agent(AgentType.DQN, state_dim=4, n_actions=4, ...)
+agent = Agent(AgentType.DQN, state_dim=5, n_actions=7, ...)
 action_idx = agent.act(obs_vector)
 agent.update(state, action, reward, next_state, done)
 agent.save("checkpoint.pt")
 agent.load("checkpoint.pt")
-agent.visualize(save_path="plot.png")
-agent.plot_learning_curve(save_path="curve.png")
 ```
 
-`AgentType` enum values: `DQN`, `EPSILON_GREEDY`
+`AgentType` enum values: `DQN`, `EPSILON_GREEDY`, `RANDOM`, `LLM`
 
----
-
-### 3. `agent/dqn.py` — **DEEP Q-NETWORK**
-
-Standard DQN with experience replay and a target network.
-
-- State: 4-dimensional vector derived from observation
-- Action: discrete index into the action space
-- Saves/loads as `.pt` (PyTorch checkpoint)
-
----
-
-### 4. `agent/eps_greedy.py` — **EPSILON-GREEDY AGENT**
-
-Tabular epsilon-greedy agent for rapid prototyping.
-
-- Saves/loads as `.json`
-- Useful for small state spaces or sanity-checking the training loop
-
----
-
-### 5. `runner/one_step.py` — **SINGLE STEP ORCHESTRATOR**
-
-Runs one complete observe → act → reward cycle.
-
-**Key function**: `one_step(trace_path, namespace, deploy, target, duration, policy_name, agent, reward_name, seed)`
-
-Internally calls `apply_action()` to load, mutate, and save the trace file.
-
----
-
-### 6. `runner/multi_step.py` — **EPISODE RUNNER**
-
-Calls `one_step()` up to `--steps` times per episode, passing the agent through each step so it can accumulate experience and learn.
-
----
-
-### 7. `runner/policies.py` — **HAND-CODED FALLBACK POLICIES**
-
-Used when `--agent` is not `dqn` or `greedy`.
-
-Available policies: `noop`, `heuristic`, `random`, `bump_cpu`, `bump_mem`, `scale_replicas`
-
----
-
-### 8. `env/actions/ops.py` — **TRACE MUTATIONS**
-
-Functions that modify trace files:
-- `bump_cpu_small(trace, deploy, step="500m")`
-- `bump_mem_small(trace, deploy, step="256Mi")`
-- `scale_up_replicas(trace, deploy, delta=1)`
-
----
-
-### 9. `env/actions/trace_io.py` — **FILE I/O**
-
-- `load_trace(path)` — MessagePack → Python dict
-- `save_trace(obj, path)` — Python dict → MessagePack
-
----
-
-### 10. `observe/reader.py` — **OBSERVATIONS**
-
-```python
-observe(namespace, deploy) → {"ready": 2, "pending": 1, "total": 3}
-```
-
----
-
-### 11. `observe/reward.py` — **REWARD FUNCTIONS**
+#### `observe/reward.py` — Reward Functions
 
 - `base` — Binary (1 if ready==target and pending==0, else 0)
 - `shaped` — Continuous (−1 to 1) with distance-based penalties
-- `cost_aware_v2` — All negative except 0 at goal; health + cost (CPU/mem/replica waste); penalizes blocked actions
+- `cost_aware_v2` — All negative except 0 at goal; health + cost shaping; penalises blocked actions
 - `max_punish` — Base + penalties for exceeding CPU/memory/replica limits
 
----
+#### `runner/safeguards.py` — Resource Limits
 
-### 12. `env/sim_env.py` — **SIMULATION WRAPPER**
-
-- `create_simulation(name, trace_path, duration_s, namespace)` — Start SimKube sim
-- `delete_simulation(name, namespace)` — Clean up
+Blocks actions that would exceed safe limits: CPU max 16000m, memory max 32Gi, replicas max 100. Prevents the agent from allocating absurd resources.
 
 ---
 
-### 13. `ops/preflight.py` — **HEALTH CHECKS**
+### LLM Benchmark Components
 
-Verifies cluster connectivity, SimKube CRDs, namespace existence, and no leftover simulations before each step.
+#### `sim_mcp/server.py` — MCP Server
 
----
+FastMCP server exposing four Kubernetes observability tools. Runs as a stdio subprocess started automatically by `MCPClientSync`.
 
-### 14. `ops/hooks.py` — **LIFECYCLE HOOKS**
+#### `sim_mcp/tools/` — K8s Tools
 
-Runs shell commands before/after steps (namespace creation, cleanup, etc.)
+| Tool | What it returns | When to use |
+|------|----------------|-------------|
+| `get_pods(namespace)` | Pod phase, container states, restart counts | First call — understand why pods are stuck |
+| `describe_deployment(namespace, deploy)` | CPU/mem requests, desired vs ready replicas | Before deciding bump/reduce/scale |
+| `get_events(namespace, deploy, last_n)` | Warning + Normal events (OOMKilled, FailedScheduling) | Diagnose root cause |
+| `get_pod_logs(namespace, pod_name, tail_lines)` | Last N container log lines | When events don't explain the failure |
+
+#### `agent/llm_agent.py` — LLM Agent
+
+Provider-agnostic. Builds prompts, dispatches to the provider, records per-step metrics. Compatible with the same `Agent` interface as DQN/EpsGreedy.
+
+#### `agent/providers/` — LLM Providers
+
+| Provider | Class | Default model | API key env var |
+|----------|-------|--------------|-----------------|
+| `gemini` | `GeminiProvider` | `gemini-2.5-flash-lite` | `GEMINI_API_KEY` |
+| `anthropic` | `AnthropicProvider` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
+
+#### `benchmark/run.py` — Benchmark Entry Point
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--provider` | `gemini` | `gemini` or `anthropic` |
+| `--model` | provider default | Override model string |
+| `--ns` | `virtual-default` | Kubernetes namespace |
+| `--steps` | 10 | Max steps per episode |
+| `--duration` | 60 | Seconds per sim step |
+| `--filter-type` | None | Filter by problem_type |
+| `--scenario` | None | Run a single named scenario |
+| `--list-scenarios` | — | Print scenarios and exit |
+| `--max-tool-rounds` | 8 | Max MCP tool calls per step |
 
 ---
 
 ## The Agent Loop Flow
 
-### Single Step
+### Single Step (shared by RL and LLM)
 
 ```python
 def one_step(trace_path, namespace, deploy, target, duration, agent, reward_name, seed):
@@ -381,80 +333,40 @@ def one_step(trace_path, namespace, deploy, target, duration, agent, reward_name
     sim_uid = create_simulation(name, trace_path, duration, namespace)
     wait_fixed(duration)
     obs = observe(namespace, deploy)          # {"ready": 0, "pending": 3, ...}
-    action = agent.act(obs_to_vector(obs))    # integer action index
-    out_trace, info = apply_action(trace_path, action, deploy, output_path)
+
+    # RL agents:
+    action_idx = agent.act(dqn_state_vector)
+
+    # LLM agents:
+    action_idx = agent.act(obs, namespace, deploy, step_idx, max_steps)
+
+    out_trace, info = apply_action(trace_path, action_idx, deploy, output_path)
     reward = compute_reward(obs, target, reward_name)
-    agent.update(obs, action, reward, next_obs, done)
+    agent.update(...)                         # no-op for LLM
     write_step_record({...})
     delete_simulation(name, namespace)
     return {"status": 0, "record": {...}}
-```
-
-### Full Training Loop
-
-```python
-agent = Agent(AgentType.DQN, ...)
-
-for ep in range(1, episodes + 1):
-    ep_seed = base_seed + ep * 1000
-    result = run_episode(trace_path, namespace, deploy, target,
-                         duration, steps, ep_seed, agent_name, reward_name, agent)
-    
-    agent.save(latest_ckpt_path)
-    agent.visualize(save_path=latest_plot_path)
-    agent.plot_learning_curve(save_path=latest_curve_path)
-    
-    if ep % checkpoint_interval == 0:
-        agent.save(checkpoint_folder / f"checkpoint_ep{ep}.pt")
 ```
 
 ---
 
 ## Key Concepts
 
+### Action Space
+
+| Index | Action | Effect |
+|-------|--------|--------|
+| 0 | `noop` | Do nothing |
+| 1 | `bump_cpu_small` | +500m CPU request |
+| 2 | `bump_mem_small` | +256Mi memory request |
+| 3 | `scale_up_replicas` | +1 replica |
+| 4 | `reduce_cpu_small` | −500m CPU request |
+| 5 | `reduce_mem_small` | −256Mi memory request |
+| 6 | `scale_down_replicas` | −1 replica |
+
 ### Traces
 
-MessagePack files containing recorded Kubernetes events. Structure:
-
-```json
-{
-  "events": [{
-    "ts": 1234567890,
-    "applied_objs": [{
-      "kind": "Deployment",
-      "metadata": {"name": "web"},
-      "spec": {
-        "replicas": 3,
-        "template": {
-          "spec": {
-            "containers": [{
-              "resources": {
-                "requests": {"cpu": "500m", "memory": "256Mi"}
-              }
-            }]
-          }
-        }
-      }
-    }]
-  }]
-}
-```
-
-`demo/traces/` contains 100 pre-generated traces. `demo/generate_traces.py` creates more.
-
-### Observations
-
-```python
-obs = {"ready": 2, "pending": 1, "total": 3}
-```
-
-### Actions
-
-```python
-action = {"type": "bump_cpu_small", "deploy": "web", "step": "500m"}
-```
-
-Available types: `noop`, `bump_cpu_small`, `bump_mem_small`, `scale_up_replicas`
+MessagePack files containing recorded Kubernetes events. `demo/traces/` contains 100 pre-generated traces. `demo/generate_traces.py` creates more.
 
 ### Agents
 
@@ -462,13 +374,26 @@ Available types: `noop`, `bump_cpu_small`, `bump_mem_small`, `scale_up_replicas`
 |-------|------|------------|----------|
 | `dqn` | Deep Q-Network | `.pt` | Full RL training |
 | `greedy` | Epsilon-Greedy | `.json` | Fast prototyping |
-| `bump_cpu` etc. | Hand-coded policy | none | Baselines / debugging |
+| `random` | Random policy | `.json` | Baseline |
+| `llm` | LLM + MCP tools | `.json` (metadata) | Benchmark evaluation |
+| `bump_cpu` etc. | Hand-coded | none | Debugging |
 
 ---
 
 ## How to Use
 
-### Train a DQN Agent (Background)
+### Setup
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up API keys (for LLM benchmarking)
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY and/or ANTHROPIC_API_KEY
+```
+
+### Train a DQN Agent
 
 ```bash
 # Clean up any ghost simulations first
@@ -500,17 +425,6 @@ nohup python runner/train.py \
   --episodes 50 &
 ```
 
-### Train an Epsilon-Greedy Agent
-
-```bash
-nohup python runner/train.py \
-  --trace demo/traces/trace-0001.msgpack \
-  --ns virtual-default \
-  --target 3 \
-  --agent greedy \
-  --episodes 100 &
-```
-
 ### Run a Single Step (Debug)
 
 ```bash
@@ -525,64 +439,93 @@ python runner/one_step.py \
 cat runs/step.jsonl
 ```
 
-### Available Reward Functions
+---
+
+## LLM Benchmarking
+
+### Quick Start
 
 ```bash
---reward base           # Binary (0 or 1)
---reward shaped         # Continuous (−1 to 1) with distance-based penalties
---reward cost_aware_v2  # All negative except 0 at goal; health+cost shaping; use --step-penalty for faster fixes
---reward max_punish     # Base + penalties for exceeding resource limits
+# List available scenarios
+python benchmark/run.py --list-scenarios
+
+# Run all scenarios with Gemini (default: gemini-2.5-flash-lite)
+python benchmark/run.py --provider gemini --ns virtual-default
+
+# Run with a specific model
+python benchmark/run.py --provider gemini --model gemini-2.5-flash --ns virtual-default
+
+# Run with Anthropic Claude
+python benchmark/run.py --provider anthropic --ns virtual-default
+
+# Single scenario for quick testing
+python benchmark/run.py --provider gemini --scenario cpu-insufficient-small --steps 5
 ```
 
-### Run Multiple Episodes
+### Recommended Models
 
-```bash
-python runner/multi_step.py \
-  --trace demo/traces/trace-0001.msgpack \
-  --ns test-ns \
-  --deploy web \
-  --target 3 \
-  --duration 60 \
-  --steps 10 \
-  --reward shaped
+| Model | RPM | RPD | Use case |
+|-------|-----|-----|----------|
+| `gemini-2.5-flash-lite` | 4K | Unlimited | Default — fast testing, no quota issues |
+| `gemini-2.5-flash` | 1K | 10K | Higher reasoning quality |
+| `claude-sonnet-4-20250514` | — | — | Anthropic benchmark |
+
+### Benchmark Results
+
+Results are written to `benchmark/results/<timestamp>_<provider>_<model>/`:
+- `report.json` — full per-step and per-episode data
+- `report.md` — human-readable summary table
+- `command.txt` — exact invocation for reproducibility
+
+### Scenario Problem Types
+
+| Type | Description |
+|------|-------------|
+| `cpu_insufficient` | CPU requests too low; pods stuck Pending |
+| `mem_insufficient` | Memory requests too low; pods OOMKilled |
+| `replica_deficit` | Fewer replicas than target |
+| `combined` | Both resource and replica problems |
+| `over_allocation` | Resources far exceed actual usage |
+
+### How the LLM Agent Works
+
+The LLM receives a prompt with the current observation (ready/pending/total pods, target) and has access to four MCP tools it can call in any order before committing to an action. It must respond with a JSON object:
+
+```json
+{"action_index": 3, "reasoning": "Only 2 of 5 target replicas are running; scale up."}
 ```
+
+The response is parsed by `agent/action_parser.py` with three fallback strategies (full JSON → extract JSON block → bare integer) so a malformed response never crashes the loop.
 
 ---
 
 ## For Future Development
 
-### Adding a New Agent Type
+### Adding a New RL Agent
 
 1. Implement your agent class in `agent/`
 2. Add a new `AgentType` enum value in `agent/agent.py`
-3. Wire up initialization in `train.py`'s argument parsing block
+3. Wire up initialization in `runner/train.py`'s argument parsing block
 
-### Enhancing Observations
+### Adding a New LLM Provider
 
-Add features in `observe/reader.py`:
+1. Subclass `LLMProvider` in `agent/providers/`
+2. Implement `run_step()` and `model_name`
+3. Register in `agent/providers/__init__.py`'s `_PROVIDER_DEFAULTS` dict
 
-```python
-def observe(namespace, deploy):
-    return {
-        "ready": ..., "pending": ..., "total": ...,
-        "cpu_usage": get_cpu_usage(),       # New!
-        "node_capacity": get_node_info(),   # New!
-    }
-```
+### Adding a New MCP Tool
 
-Remember to update `state_dim` in `train.py` and the DQN network accordingly.
+1. Add a function in `sim_mcp/tools/`
+2. Register it with `@mcp.tool()` in `sim_mcp/server.py`
+3. The tool is automatically available to all LLM providers via `MCPClientSync.anthropic_tools`
 
-### Better Rewards
+### Enhancing Observations (RL)
 
-Modify `observe/reward.py`:
+Add features in `observe/reader.py` and update `state_dim` in `runner/train.py` and the DQN network accordingly.
 
-```python
-def shaped(obs, target_total, T_s):
-    if obs["ready"] == target_total and obs["pending"] == 0:
-        waste_penalty = calculate_waste(obs)
-        return 1.0 - waste_penalty
-    return obs["ready"] / target_total - 1.0
-```
+### Adding Benchmark Scenarios
+
+Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `demo/traces/`.
 
 ---
 
@@ -592,53 +535,36 @@ def shaped(obs, target_total, T_s):
 
 | What | Where |
 |------|-------|
-| Training loop + checkpointing | `runner/train.py` |
+| RL training loop | `runner/train.py` |
 | Episode runner | `runner/multi_step.py` |
-| Single step loop | `runner/one_step.py` |
+| Single step (RL + LLM) | `runner/one_step.py` |
 | DQN agent | `agent/dqn.py` |
 | Epsilon-Greedy agent | `agent/eps_greedy.py` |
-| Agent factory | `agent/agent.py` |
-| Hand-coded policies | `runner/policies.py` |
+| LLM agent | `agent/llm_agent.py` |
+| Gemini provider | `agent/providers/gemini_provider.py` |
+| Anthropic provider | `agent/providers/anthropic_provider.py` |
+| MCP server | `sim_mcp/server.py` |
+| MCP client | `sim_mcp/client.py` |
+| K8s tools | `sim_mcp/tools/` |
+| Benchmark entry point | `benchmark/run.py` |
+| Benchmark scenarios | `benchmark/scenarios/index.json` |
+| Benchmark metrics | `benchmark/metrics.py` |
 | Trace modification | `env/actions/ops.py` |
 | Observation extraction | `observe/reader.py` |
 | Reward calculation | `observe/reward.py` |
 | Simulation management | `env/sim_env.py` |
+| Resource safeguards | `runner/safeguards.py` |
 | Cluster health checks | `ops/preflight.py` |
-
-### "What file do I edit to..."
-
-| Goal | File |
-|------|------|
-| Add a new RL agent | `agent/` + `runner/train.py` |
-| Add a new hand-coded policy | `runner/policies.py` |
-| Add a new action type | `env/actions/ops.py` + `runner/one_step.py` |
-| Change reward function | `observe/reward.py` |
-| Add observation features | `observe/reader.py` |
-| Change training hyperparameters | `runner/train.py` CLI flags |
-| Generate more traces | `demo/generate_traces.py` |
 
 ### Data Flow
 
 ```
-Trace File → Simulation → Cluster → Observation → Agent → Action → Modified Trace
-    ↑                                                 ↓
-    │                                          Reward + Learn
-    └──────────────────────────────────────────────────────────┘
-              (Each episode starts from the original trace)
+                      RL Agent
+                     ↗
+Trace → Simulation → Cluster → Observation → Agent → Action → Modified Trace
+                                                ↘         ↑
+                                             LLM Agent     |
+                                            (MCP tools) ───┘
+                                                  ↓
+                                            Reward + Metrics
 ```
-
----
-
-## Summary
-
-**Sim-Arena is a reinforcement learning gym for Kubernetes resource optimization.**
-
-- **Input**: Trace file with resource problems + an agent (DQN / Greedy / policy)
-- **Output**: Trained agent weights + reward history + visualizations
-- **Goal**: Learn to fix resource issues through trial and error
-
-**Current state**: Full training loop with DQN and Epsilon-Greedy agents, automatic checkpointing, and learning curve visualization.
-
-**Next steps**: Extend the observation space, tune reward shaping, or plug in more powerful agents (PPO, A2C, etc.) via the `agent/` module.
-
-**Reward design note**: The `cost_aware_v2` reward uses all-negative rewards (0 only at goal) so the agent has incentive to finish episodes rather than no-op forever. See `observe/reward.py` for details. 

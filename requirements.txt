@@ -1,24 +1,37 @@
-# Sim-Arena MVP Dependencies
+# Sim-Arena Dependencies
 # Install with: pip install -r requirements.txt
 
-# Kubernetes client library
+# ── Kubernetes ────────────────────────────────────────────────────────────
 kubernetes>=29.0.0
 
-# MessagePack for trace serialization
+# ── Trace serialization ───────────────────────────────────────────────────
 msgpack>=1.0.0
 
-# Testing framework
-pytest>=7.0.0
-
-# Jupyter notebook support
-ipykernel>=6.0.0
-
-# Agent support
+# ── RL agent ──────────────────────────────────────────────────────────────
 torch>=2.0.0
-matplotlib>=3.7,<3.10
+gymnasium>=1.2.3
 
+# ── LLM benchmark: MCP server ─────────────────────────────────────────────
+mcp[cli]>=1.0.0
+
+# ── LLM benchmark: providers ──────────────────────────────────────────────
+anthropic>=0.40.0
+google-genai>=1.0.0
+
+# ── API key management ────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── AWS (S3 trace storage) ────────────────────────────────────────────────
 boto3>=1.42.55
 
-# Gymnasium support
-gymnasium>=1.2.3
+# ── Plotting & visualization ──────────────────────────────────────────────
+matplotlib>=3.7,<3.10
+
+# ── Testing ───────────────────────────────────────────────────────────────
+pytest>=7.0.0
+
+# ── Notebook support ──────────────────────────────────────────────────────
+ipykernel>=6.0.0
+
+# ── Scaffolding ───────────────────────────────────────────────────────────
 copier>=9.12.0

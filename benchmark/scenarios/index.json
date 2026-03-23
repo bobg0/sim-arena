@@ -1,0 +1,26 @@
+{
+  "_comment": "Benchmark scenario registry for LLM agent evaluation. Traces reference files in demo/traces/. problem_type drives prompt context and result grouping in benchmark/metrics.py.",
+  "scenarios": [
+    {
+      "name": "replica-tiny-scale",
+      "trace": "demo/traces/trace-0001.msgpack",
+      "target": 3,
+      "problem_type": "tiny_scale",
+      "description": "3-replica deployment with possible resource insufficient."
+    },
+    {
+      "name": "replica-small-scale",
+      "trace": "demo/traces/trace-0001.msgpack",
+      "target": 5,
+      "problem_type": "small_scale",
+      "description": "5-replica deployment with possible resource insufficient."
+    },
+    {
+      "name": "replica-medium-scale",
+      "trace": "demo/traces/trace-0001.msgpack",
+      "target": 10,
+      "problem_type": "medium_scale",
+      "description": "10-replica deployment with possible resource insufficient."
+    }
+  ]
+}

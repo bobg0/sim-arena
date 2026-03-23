@@ -214,3 +214,4 @@ demo/traces/
 demo/trace-next.msgpack
 checkpoints/
 nohup.out
+benchmark/results
