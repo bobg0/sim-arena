@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .agent import BaseAgent, ACTION_NAMES
+from .agent import Agent, ACTION_NAMES
 
 
 ###############################################################################
@@ -56,7 +56,7 @@ class ReplayMemory:
 # DQN Agent
 ###############################################################################
 
-class DQNAgent(BaseAgent):
+class DQNAgent(Agent):
     def __init__(
         self,
         state_dim,

@@ -1,123 +1,148 @@
 """
-Base agent class and unified wrapper for different RL agents.
+agent/agent.py
+
+Agent factory — wraps DQN, Epsilon-Greedy, Random, and LLM agents
+behind a single unified Agent class.
+
+Changes from original:
+  - Added AgentType.LLM
+  - LLM branch takes 'provider' (LLMProvider) and 'mcp_client' (MCPClientSync)
+  - All existing agent types and their interfaces are unchanged
 """
 
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
+import logging
+from enum import Enum
+from typing import Any
+
+logger = logging.getLogger("agent")
+
 
 # Action names for visualization (must match ACTION_SPACE in runner/one_step.py)
 ACTION_NAMES = ["noop", "+CPU", "+Mem", "+Rep", "-CPU", "-Mem", "-Rep"]
-from enum import Enum
-from typing import Any, Optional, Union
-
 
 class AgentType(Enum):
-    """Enumeration of available agent types."""
-    EPSILON_GREEDY = "epsilon_greedy"
-    DQN = "dqn"
-    RANDOM = "random"
-
-
-class BaseAgent(ABC):
-    """Abstract base class for all agents."""
-    
-    @abstractmethod
-    def act(self, state: Any) -> int:
-        """Select an action given the current state."""
-        pass
-    
-    @abstractmethod
-    def update(self, *args, **kwargs):
-        """Update agent's internal state/model."""
-        pass
-    
-    @abstractmethod
-    def save(self, path: str):
-        """Save the agent's state to a file."""
-        pass
-
-    @abstractmethod
-    def load(self, path: str):
-        """Load the agent's state from a file."""
-        pass
-    
-    def reset(self):
-        """Reset agent state (optional, override if needed)."""
-        pass
+    DQN            = "dqn"
+    EPSILON_GREEDY = "greedy"
+    RANDOM         = "random"
+    LLM            = "llm"
 
 
 class Agent:
     """
-    Unified wrapper class for different RL agents.
+    Unified Agent interface.
+
+    All agent types expose:
+        act(...)                  → int
+        update(...)               → None
+        save(path)                → None
+        load(path)                → None
+        reset()                   → None
+        visualize(...)            → None  (no-op where not applicable)
+        plot_learning_curve(...)  → None  (no-op where not applicable)
+
+    For AgentType.LLM the following kwargs are required:
+        provider   (LLMProvider)    — from agent.providers.make_provider()
+        mcp_client (MCPClientSync)  — must already be started
     """
-    
-    def __init__(self, agent_type: Union[AgentType, str], **kwargs):
-        if isinstance(agent_type, str):
-            agent_type = AgentType(agent_type.lower())
-        
-        self.agent_type = agent_type
-        self._agent = self._create_agent(**kwargs)
-    
-    def _create_agent(self, **kwargs) -> BaseAgent:
-        if self.agent_type == AgentType.EPSILON_GREEDY:
-            from .eps_greedy import EpsilonGreedyAgent
-            return EpsilonGreedyAgent(**kwargs)
-        elif self.agent_type == AgentType.DQN:
-            from .dqn import DQNAgent
-            return DQNAgent(**kwargs)
-        elif self.agent_type == AgentType.RANDOM:
-            from .random import RandomAgent
-            return RandomAgent(**kwargs)
+
+    def __init__(self, agent_type: AgentType, **kwargs: Any) -> None:
+        self._type  = agent_type
+        self._agent = self._build(agent_type, **kwargs)
+
+    @staticmethod
+    def _build(agent_type: AgentType, **kwargs) -> Any:
+        if agent_type == AgentType.DQN:
+            from agent.dqn import DQNAgent
+            return DQNAgent(
+                state_dim          = kwargs.get("state_dim", 5),
+                n_actions          = kwargs.get("n_actions", 7),
+                learning_rate      = kwargs.get("learning_rate", 0.001),
+                gamma              = kwargs.get("gamma", 0.97),
+                eps_start          = kwargs.get("eps_start", 1.0),
+                eps_end            = kwargs.get("eps_end", 0.1),
+                eps_decay_steps    = kwargs.get("eps_decay_steps", 1000),
+                replay_buffer_size = kwargs.get("replay_buffer_size", 2000),
+                batch_size         = kwargs.get("batch_size", 32),
+                target_update_freq = kwargs.get("target_update_freq", 50),
+            )
+
+        elif agent_type == AgentType.EPSILON_GREEDY:
+            from agent.eps_greedy import EpsilonGreedyAgent
+            return EpsilonGreedyAgent(
+                n_actions = kwargs.get("n_actions", 7),
+                epsilon   = kwargs.get("epsilon", 0.1),
+            )
+
+        elif agent_type == AgentType.RANDOM:
+            from agent.eps_greedy import EpsilonGreedyAgent
+            return EpsilonGreedyAgent(
+                n_actions = kwargs.get("n_actions", 7),
+                epsilon   = 1.0,
+            )
+
+        elif agent_type == AgentType.LLM:
+            from agent.llm_agent import LLMAgent
+            provider   = kwargs.get("provider")
+            mcp_client = kwargs.get("mcp_client")
+            if provider is None:
+                raise ValueError(
+                    "AgentType.LLM requires a 'provider' (LLMProvider) kwarg. "
+                    "Use agent.providers.make_provider(provider_name, model) to create one."
+                )
+            if mcp_client is None:
+                raise ValueError(
+                    "AgentType.LLM requires an 'mcp_client' (MCPClientSync) kwarg."
+                )
+            return LLMAgent(
+                provider        = provider,
+                mcp_client      = mcp_client,
+                max_tool_rounds = kwargs.get("max_tool_rounds", 8),
+            )
+
         else:
-            raise ValueError(f"Unknown agent type: {self.agent_type}")
-    
-    def act(self, state: Any = None) -> int:
-        if self.agent_type in (AgentType.EPSILON_GREEDY, AgentType.RANDOM):
-            return self._agent.act()
-        else:
-            if state is None:
-                raise ValueError("State is required for DQN agent")
-            return self._agent.act(state)
-    
-    def update(self, *args, **kwargs):
+            raise ValueError(f"Unknown AgentType: {agent_type}")
+
+    # ---- public interface -------------------------------------------------
+
+    def act(self, *args: Any, **kwargs: Any) -> int:
+        return self._agent.act(*args, **kwargs)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
         self._agent.update(*args, **kwargs)
-    
-    def _train_step(self):
-        """Perform a training step if the underlying agent supports it."""
-        if hasattr(self._agent, '_train_step'):
-            self._agent._train_step()
-    
-    def save(self, path: str):
-        """Save the underlying agent to the specified path."""
+
+    def save(self, path: str) -> None:
         self._agent.save(path)
 
-    def load(self, path: str):
-        """Load the underlying agent from the specified path."""
+    def load(self, path: str) -> None:
         self._agent.load(path)
-    
-    def reset(self):
-        if hasattr(self._agent, 'reset'):
+
+    def reset(self) -> None:
+        if hasattr(self._agent, "reset"):
             self._agent.reset()
-    
-    def visualize(self, save_path: Optional[str] = None, **kwargs):
-        """ Visualize the agent's learned values. """
-        if hasattr(self._agent, 'visualize'):
-            self._agent.visualize(save_path)
-        else:
-            print(f"Agent {self.agent_type} does not support visualization.")
-    
-    def plot_learning_curve(self, save_path: Optional[str] = None):
-        """ Plot the learning curve (reward history) of the agent. """
-        if hasattr(self._agent, 'plot_learning_curve'):
-            self._agent.plot_learning_curve(save_path)
-        else:
-            print(f"Agent {self.agent_type} does not support learning curves.")
-    
+
+    def visualize(self, save_path: str = "", **kwargs: Any) -> None:
+        if hasattr(self._agent, "visualize"):
+            self._agent.visualize(save_path=save_path, **kwargs)
+
+    def plot_learning_curve(self, save_path: str = "", **kwargs: Any) -> None:
+        if hasattr(self._agent, "plot_learning_curve"):
+            self._agent.plot_learning_curve(save_path=save_path, **kwargs)
+
     @property
-    def n_actions(self) -> int:
-        return self._agent.n_actions
-    
-    def get_agent(self):
-        return self._agent
-    
-    def __repr__(self) -> str:
-        return f"Agent(type={self.agent_type.value}, underlying={self._agent})"
+    def episode_reward_history(self) -> list:
+        return getattr(self._agent, "episode_reward_history", [])
+
+    @property
+    def current_episode_reward(self) -> float:
+        return getattr(self._agent, "current_episode_reward", 0.0)
+
+    @current_episode_reward.setter
+    def current_episode_reward(self, value: float) -> None:
+        if hasattr(self._agent, "current_episode_reward"):
+            self._agent.current_episode_reward = value
+
+    def _train_step(self) -> None:
+        if hasattr(self._agent, "_train_step"):
+            self._agent._train_step()

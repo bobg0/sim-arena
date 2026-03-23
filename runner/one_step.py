@@ -403,6 +403,20 @@ def one_step(
             action_idx = agent.act(dqn_state)
             action = ACTION_SPACE.get(action_idx, {"type": "noop"})
             logger.debug(f"Agent '{agent_name}' chose action index: {action_idx}")
+        elif agent_name == "llm" and agent is not None:
+            # LLM agent receives the raw obs dict + cluster context so it can
+            # call MCP tools to investigate before choosing an action.
+            # step_idx and state_space are already available in one_step()'s scope.
+            action_idx = agent.act(
+                obs           = {**obs, "target": target},   # inject target for prompt
+                namespace     = virtual_namespace,
+                deploy        = deploy,
+                step_idx      = step_idx,
+                max_steps     = 999,   # one_step doesn't know max_steps; benchmark sets it
+                scenario_name = "",
+            )
+            action = ACTION_SPACE.get(action_idx, {"type": "noop"})
+            logger.debug(f"Agent 'llm' chose action index: {action_idx}")
         else:
             policy_fn = get_policy(agent_name)
             action = policy_fn(obs=obs, deploy=deploy)

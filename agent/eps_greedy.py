@@ -1,10 +1,10 @@
 import random
 import json
 import os
-from .agent import BaseAgent, ACTION_NAMES
+from .agent import Agent, ACTION_NAMES
 
 
-class EpsilonGreedyAgent(BaseAgent):
+class EpsilonGreedyAgent(Agent):
     def __init__(self, n_actions, epsilon=0.1):
         self.n_actions = n_actions
         self.epsilon = epsilon
