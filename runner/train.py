@@ -97,7 +97,7 @@ def main():
     args = parser.parse_args()
 
     # Traces with incompatible SimKube v2 format (cause 404 "web" deployment not found)
-    TRACE_EXCLUDE = {"trace-v2.msgpack"}
+    TRACE_EXCLUDE = {"trace-v2.msgpack", "trace-scaling-v2.msgpack"}
 
     # Resolve trace path(s): dir -> list of .msgpack, file -> single-item list
     trace_path_arg = Path(args.trace)
