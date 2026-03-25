@@ -6,6 +6,49 @@ Three people can each own one of the big tasks below. This doc breaks each into 
 
 ---
 
+## Priority, order, parallelism & time estimates
+
+### Most important
+
+**Task 2 (Communication protocol)** is the most important. Without it, multiple instances are just separate machines with no way to assign work or get results back. Task 1 gives you the machines; Task 2 is what makes them part of one system.
+
+**Task 1 (Launching instances)** is next — you need a repeatable way to get N workers. Task 3 (central server) is the “brain” that uses the protocol, but you can test the protocol with a single instance and a minimal script before the full server exists.
+
+### Recommended order
+
+1. **First (in parallel):** Task 1 + Task 2  
+   - Person A: launch script + machine list.  
+   - Person B: protocol design + minimal “send one job, get one result” (e.g. SSH or one queue).  
+   - Agree early on **job and result payload** (Person B and C align in a short sync).
+
+2. **Second:** Task 3  
+   - Person C builds the central server using the agreed payload and (when ready) Person B’s protocol.  
+   - Task 3 can start as soon as the payload is defined; full integration happens once Task 2 has a working path.
+
+3. **Then:** Integrate and iterate (all three) — run a full pipeline and fix gaps.
+
+### What can be done in parallel
+
+| Phase | Task 1 | Task 2 | Task 3 |
+|-------|--------|--------|--------|
+| **Phase 1** | ✅ Launch script, IP list | ✅ Protocol choice, job/result format, minimal dispatch | ✅ Agree on payload only |
+| **Phase 2** | ✅ Terminate script, docs | ✅ Full protocol + failure handling | ✅ Job store, result collection, aggregation |
+| **Phase 3** | — | — | ✅ Integration with 1 & 2, dashboard |
+
+Tasks 1 and 2 are **independent** and can run in parallel. Task 3 can start the design and job/result schema in parallel; implementation of dispatcher and result ingestion depends on Task 2’s protocol.
+
+### Rough time estimates (per person)
+
+| Task | Owner | Estimated time | Notes |
+|------|--------|----------------|--------|
+| **1. Launching multiple EC2** | Person A | **3–5 hours** | Script + docs; boto3 or CLI is enough for an MVP. Terraform adds 2–4 hrs if you want IaC. |
+| **2. Communication protocol** | Person B | **6–10 hours** | Biggest chunk: design, implement dispatch (SSH or queue), result handling, failure/timeout logic, docs. |
+| **3. Central server** | Person C | **5–8 hours** | Job queue + result storage + aggregation + minimal report. Can start with SQLite/JSON + script; a small API or UI adds time. |
+
+**End-to-end (with integration):** plan for **1–2 extra sessions** (2–4 hours total) for all three to wire things together, debug, and run a full multi-instance run.
+
+---
+
 ## Task 1: Launching Multiple EC2 Instances
 
 **Owner:** Person A  
@@ -104,10 +147,7 @@ Three people can each own one of the big tasks below. This doc breaks each into 
 | **2. Communication protocol** | List of instance IPs (from Task 1); job/result format (can align with Task 3 early) | Protocol spec and how to send one job and get one result. |
 | **3. Central server** | Job/result format (align with Task 2) | Where jobs are stored and how the dispatcher gets the worker list (from Task 1). |
 
-**Suggested order:**  
-- **Week 1:** Agree on job and result payload (Tasks 2 and 3 owners). Person A delivers launch script + machine list.  
-- **Week 2:** Person B delivers a minimal “send one job, get one result” flow. Person C delivers job store and result collection.  
-- **Week 3:** Integrate: launch N instances (1), run dispatcher (2), create and collect jobs (3), then iterate.
+**Suggested order:** See **“Priority, order, parallelism & time estimates”** at the top of this doc.
 
 ---
 
