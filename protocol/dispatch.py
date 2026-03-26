@@ -21,6 +21,7 @@ import dataclasses
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import put_json, object_exists, list_keys, get_json
@@ -32,8 +33,33 @@ def _job_id() -> str:
     return f"job_{ts}_{short}"
 
 
+def submit_experience_collection_job(
+    trace_s3_uri: str,
+    episodes: int,
+    bucket: str,
+    weights_s3_uri: Optional[str] = None,
+    namespace: str = "default",
+    target: int = 3,
+    timeout_seconds: int = 3600
+) -> str:
+    """Submit an experience collection job. Returns the job ID."""
+    job_id = _job_id()
+    manifest = JobManifest(
+        job_id=job_id,
+        job_type="experience_collection",
+        trace_s3_uri=trace_s3_uri,
+        agent="dqn",  # For experience collection, agent type doesn't matter much
+        episodes=episodes,
+        namespace=namespace,
+        target=target,
+        weights_s3_uri=weights_s3_uri,
+        timeout_seconds=timeout_seconds,
+    )
+    return submit_job(manifest, bucket)
+
+
 def submit_job(manifest: JobManifest, bucket: str) -> str:
-    """Write manifest.json to S3. Returns the full S3 key."""
+    """Submit a job manifest to the S3 bucket (under jobs/pending/<job_id>)."""
     key = f"jobs/pending/{manifest.job_id}/manifest.json"
     put_json(bucket, key, dataclasses.asdict(manifest))
     return key
