@@ -34,6 +34,7 @@ from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import (
     download_file, list_keys, object_exists, put_json, upload_file, s3_uri_to_bucket_key
 )
+from runner.distributed import read_msgpack, write_msgpack
 
 logger = logging.getLogger("worker")
 
@@ -94,12 +95,131 @@ def _extract_metrics(ckpt_path: Path, agent: str) -> Tuple[int, Optional[float],
         return 0, None, None
 
 
+def _run_experience_collection_job(manifest: JobManifest, worker_id: str, bucket: str, job_dir: Path, started_at: str, t0: float) -> JobResult:
+    """Run an experience collection job."""
+    transitions_path = job_dir / "transitions.msgpack"
+    log_path = job_dir / "experience_collection.log"
+
+    try:
+        weights_path: Optional[str] = None
+        if manifest.weights_s3_uri:
+            w_bucket, w_key = s3_uri_to_bucket_key(manifest.weights_s3_uri)
+            w_ext = Path(w_key).suffix or ".pt"
+            weights_path = str(job_dir / f"weights{w_ext}")
+            logger.info(f"Downloading weights: {manifest.weights_s3_uri}")
+            download_file(w_bucket, w_key, weights_path)
+
+        s3_prefix = f"jobs/{manifest.job_id}"
+        cmd = [
+            sys.executable,
+            str(PROJECT_ROOT / "runner" / "dist_run.py"),
+            "--mode", "worker",
+            "--s3-bucket", bucket,
+            "--s3-prefix", s3_prefix,
+            "--worker-id", worker_id,
+            "--episodes", str(manifest.episodes),
+            "--trace", manifest.trace_s3_uri,
+            "--ns", manifest.namespace,
+            "--target", str(manifest.target),
+        ]
+
+        if weights_path:
+            cmd.extend(["--weights", weights_path])
+
+        logger.info(f"Running experience collection for job {manifest.job_id}")
+        logger.debug("Command: %s", " ".join(cmd))
+
+        env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+        with open(log_path, "w") as log_f:
+            proc = subprocess.run(
+                cmd,
+                env=env,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                timeout=manifest.timeout_seconds,
+                cwd=str(PROJECT_ROOT),
+            )
+
+        if proc.returncode != 0:
+            return JobResult(
+                job_id=manifest.job_id,
+                worker_id=worker_id,
+                status="failed",
+                started_at=started_at,
+                finished_at=_now_iso(),
+                elapsed_seconds=round(time.time() - t0, 1),
+                error=f"dist_run.py exited with code {proc.returncode}",
+            )
+
+        all_transitions = []
+        s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION"))
+        paginator = s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=f"{s3_prefix}/exp/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.endswith(".msgpack"):
+                    local_file = job_dir / Path(key).name
+                    s3_client.download_file(bucket, key, str(local_file))
+                    exp_data = read_msgpack(str(local_file))
+                    all_transitions.extend(exp_data.get("transitions", []))
+
+        write_msgpack(transitions_path, {
+            "job_id": manifest.job_id,
+            "worker_id": worker_id,
+            "transitions": all_transitions,
+            "total_transitions": len(all_transitions),
+        })
+
+        transitions_key = f"results/{manifest.job_id}/transitions.msgpack"
+        log_key = f"results/{manifest.job_id}/experience_collection.log"
+
+        upload_file(str(transitions_path), bucket, transitions_key)
+        upload_file(str(log_path), bucket, log_key)
+
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="success",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            episodes_completed=manifest.episodes,
+            transitions_s3_uri=f"s3://{bucket}/{transitions_key}",
+            log_s3_uri=f"s3://{bucket}/{log_key}",
+        )
+
+    except subprocess.TimeoutExpired:
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="timeout",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            error=f"Job timed out after {manifest.timeout_seconds} seconds",
+        )
+    except Exception as e:
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="failed",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            error=str(e),
+        )
+
+
 def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
     """
     Execute one job:
-      1. Download weights from S3 (if provided)
-      2. Run train.py via subprocess with a timeout
-      3. Upload checkpoint + log to S3
+      For training jobs:
+        1. Download weights from S3 (if provided)
+        2. Run train.py in subprocess with timeout
+        3. Upload checkpoint + log to S3
+      For experience collection jobs:
+        1. Start dist_run in worker mode to generate experiences
+        2. Combine transitions and upload them to S3
       4. Return a JobResult (success, failed, or timeout)
     """
     started_at = _now_iso()
@@ -107,6 +227,9 @@ def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
 
     job_dir = PROJECT_ROOT / ".jobs" / manifest.job_id
     job_dir.mkdir(parents=True, exist_ok=True)
+
+    if manifest.job_type == "experience_collection":
+        return _run_experience_collection_job(manifest, worker_id, bucket, job_dir, started_at, t0)
 
     ext = _ext_for_agent(manifest.agent)
     save_path = job_dir / f"checkpoint_final{ext}"
