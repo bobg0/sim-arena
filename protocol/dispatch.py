@@ -19,9 +19,16 @@ List all jobs and their status:
 import argparse
 import dataclasses
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
+
+# Allow `python protocol/dispatch.py` from repo root (same pattern as runner/train.py)
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import put_json, object_exists, list_keys, get_json

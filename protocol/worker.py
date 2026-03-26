@@ -30,6 +30,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
+# Allow `python protocol/worker.py` from repo root (same pattern as runner/train.py)
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import (
     download_file, list_keys, object_exists, put_json, upload_file, s3_uri_to_bucket_key
