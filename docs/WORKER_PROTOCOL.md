@@ -138,22 +138,27 @@ unclaimed job, runs `train.py`, uploads results, writes `result.json`, then loop
 cd ~/work/sim-arena
 source .venv/bin/activate
 
-# Fresh start (no prior weights)
+# Set your jobs bucket once (must match the bucket you created in S3)
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an   # example; use yours
+
+# Fresh start (no prior weights). Put --bucket on the same line as submit/list.
 python protocol/dispatch.py submit \
+  --bucket "$JOBS_BUCKET" \
   --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
   --agent dqn --episodes 10 --steps 20
 
 # Resume from a previous checkpoint (pass updated weights from central server)
 python protocol/dispatch.py submit \
+  --bucket "$JOBS_BUCKET" \
   --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
   --agent dqn --episodes 10 \
-  --weights s3://diya-simarena-jobs/results/<prev_job_id>/checkpoint_final.pt
+  --weights s3://$JOBS_BUCKET/results/<prev_job_id>/checkpoint_final.pt
 ```
 
 ### Check job status
 
 ```bash
-python protocol/dispatch.py list
+python protocol/dispatch.py list --bucket "$JOBS_BUCKET"
 ```
 
 Output:

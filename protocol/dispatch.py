@@ -106,19 +106,24 @@ def list_jobs(bucket: str) -> None:
     print()
 
 
+def _default_jobs_bucket() -> str:
+    return os.getenv("JOBS_BUCKET", "diya-simarena-jobs")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Sim-arena job dispatcher: submit jobs to S3 or check status"
     )
-    parser.add_argument(
-        "--bucket",
-        default=os.getenv("JOBS_BUCKET", "diya-simarena-jobs"),
-        help="S3 bucket for jobs/results (default: diya-simarena-jobs)",
-    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    bucket_kwargs = dict(
+        default=_default_jobs_bucket(),
+        help="S3 bucket for jobs/results (default: JOBS_BUCKET env or diya-simarena-jobs)",
+    )
 
     # --- submit ---
     sub = subparsers.add_parser("submit", help="Submit a new job manifest")
+    sub.add_argument("--bucket", **bucket_kwargs)
     sub.add_argument("--trace", required=True, help="S3 URI of the trace file")
     sub.add_argument("--agent", default="dqn", help="Agent type (default: dqn)")
     sub.add_argument("--episodes", type=int, default=10, help="Episodes to train (default: 10)")
@@ -141,7 +146,8 @@ def main():
     sub.add_argument("--job-id", default=None, help="Custom job ID (auto-generated if omitted)")
 
     # --- list ---
-    subparsers.add_parser("list", help="List all jobs and their status")
+    list_p = subparsers.add_parser("list", help="List all jobs and their status")
+    list_p.add_argument("--bucket", **bucket_kwargs)
 
     args = parser.parse_args()
 
