@@ -21,6 +21,8 @@ import dataclasses
 import json
 import logging
 import os
+
+import boto3
 import socket
 import subprocess
 import sys

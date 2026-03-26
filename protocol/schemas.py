@@ -25,6 +25,9 @@ class JobManifest:
     job_id: str
     trace_s3_uri: str
 
+    # "training" runs train.py; "experience_collection" uses runner/dist_run.py (when implemented)
+    job_type: str = "training"
+
     # train.py arguments
     agent: str = "dqn"
     episodes: int = 10
@@ -76,6 +79,7 @@ class JobResult:
     # S3 URIs the central server should pull from
     checkpoint_s3_uri: Optional[str] = None
     log_s3_uri: Optional[str] = None
+    transitions_s3_uri: Optional[str] = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)
