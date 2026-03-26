@@ -29,6 +29,16 @@ class AgentType(Enum):
     LLM            = "llm"
 
 
+class ConcreteAgent:
+    """
+    Base for DQN / epsilon-greedy / random implementations.
+
+    The unified :class:`Agent` below is a *facade* that wraps one of these.
+    Concrete agents must subclass ``ConcreteAgent``, **not** ``Agent``, or
+    attribute assignments collide with the facade's properties (e.g. ``_agent``).
+    """
+
+
 class Agent:
     """
     Unified Agent interface.
@@ -146,3 +156,12 @@ class Agent:
     def _train_step(self) -> None:
         if hasattr(self._agent, "_train_step"):
             self._agent._train_step()
+
+    @property
+    def n_actions(self) -> int:
+        return int(getattr(self._agent, "n_actions"))
+
+
+def create_epsilon_greedy_agent(**kwargs: Any) -> Agent:
+    """Convenience wrapper for tests and notebooks."""
+    return Agent(AgentType.EPSILON_GREEDY, **kwargs)
