@@ -14,7 +14,7 @@ def test_simkube_env_compliance():
     gym_env = gym.make(
         "SimKube-v0",
         initial_trace_path="demo/trace-0001.msgpack",
-        namespace="test-ns",
+        namespace="omar",
         deploy="web",
         target=3
     )
