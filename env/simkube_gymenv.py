@@ -40,9 +40,11 @@ class SimKubeEnv(gym.Env):
                  reward_name: str = "shaped",
                  reward_kwargs: Optional[dict] = None,
                  obs_noise_scale: float = 0.0,
-                 max_steps: int = 10):
+                 max_steps: int = 10,
+                 render_mode: Optional[str] = None):
         super(SimKubeEnv, self).__init__()
-        
+
+        self.render_mode = render_mode
         # Environment configuration
         self.initial_trace_path = initial_trace_path
         self.namespace = namespace
@@ -190,6 +192,9 @@ class SimKubeEnv(gym.Env):
             if sim_uid:
                 try:
                     self.sim_env.delete(name=sim_name, namespace=self.namespace)
+                    # Give K8s a few seconds to actually delete the CR 
+                    # and release the SimKube lease before the next episode starts.
+                    time.sleep(4)
                 except Exception as e:
                     logger.warning(f"Failed to delete simulation {sim_name}: {e}")
 
