@@ -4,9 +4,10 @@ Random baseline agent for reinforcement learning.
 import random
 import json
 import os
-from .agent import BaseAgent
+from .agent import ConcreteAgent
 
-class RandomAgent(BaseAgent):
+
+class RandomAgent(ConcreteAgent):
     def __init__(self, n_actions: int, **kwargs):
         self.n_actions = n_actions
         self.reward_history = []

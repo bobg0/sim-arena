@@ -214,3 +214,7 @@ demo/traces/
 demo/trace-next.msgpack
 checkpoints/
 nohup.out
+benchmark/results
+
+# Worker protocol — local job working directories (temp files, not for repo)
+.jobs/
