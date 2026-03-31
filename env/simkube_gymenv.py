@@ -7,34 +7,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
+import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-import numpy as np
-import uuid
 
-# Import your existing SimEnv and (presumably) your observation/reward logic
-from .sim_env import SimEnv
-# Import project modules
+# Import your existing modules
+from env.sim_env import SimEnv
 from ops.hooks import run_hooks
-from env import create_simulation, wait_fixed, delete_simulation
 from observe.reader import observe, current_requests, add_obs_noise
 from observe.reward import get_reward
 from env.actions.trace_io import load_trace, save_trace
 from env.actions.ops import (
-    bump_cpu_small,
-    bump_mem_small,
-    reduce_cpu_small,
-    reduce_mem_small,
-    scale_up_replicas,
-    scale_down_replicas,
+    bump_cpu_small, bump_mem_small, reduce_cpu_small,
+    reduce_mem_small, scale_up_replicas, scale_down_replicas
 )
 from runner.safeguards import validate_action
-from runner.policies import get_policy
-# from observe.reader import get_metrics  # Example import based on your repo structure
-# from observe.reward import calculate_reward # Example import 
+from runner.one_step import wait_for_driver_ready, _get_node_data_dir, _extract_current_state
 
-class SimKubeGymEnv(gym.Env):
-    """Custom Environment that follows the Gymnasium interface for SimKube."""
+logger = logging.getLogger("SimKubeEnv")
+
+class SimKubeEnv(gym.Env):
+    """Custom Environment that follows gym interface for SimKube."""
     
     metadata = {"render_modes": ["console"]}
 
@@ -49,18 +42,8 @@ class SimKubeGymEnv(gym.Env):
                  obs_noise_scale: float = 0.0,
                  max_steps: int = 10):
         super(SimKubeEnv, self).__init__()
-                 '''(self, 
-                 trace_path: str, 
-                 namespace="simkube", 
-                 duration_s=60, 
-                 render_mode=None):
-        super().__init__()
-        self.namespace = namespace
-        self.duration_s = duration_s
-        self.trace_path = trace_path
-        self.render_mode = render_mode'''
         
-        # Initialize your core Kubernetes interaction class
+        # Environment configuration
         self.initial_trace_path = initial_trace_path
         self.namespace = namespace
         self.virtual_namespace = "virtual-default"
@@ -71,23 +54,14 @@ class SimKubeGymEnv(gym.Env):
         self.reward_kwargs = reward_kwargs or {}
         self.obs_noise_scale = obs_noise_scale
         self.max_steps = max_steps
-
-        self.config = config
+        
         self.sim_env = SimEnv()
-        self.sim_handler = SimEnv() # ITS ONE OR THE OTHER IDK
-        self.current_sim_name = None
         self.current_step = 0
         self.current_trace_path = None
-
-        self.reward_fn = get_reward(config.get("reward_type", "cost_aware_v2"))
-
-        # ---------------------------------------------------------
-        # TODO: Define your Action and Observation Spaces
-        # ---------------------------------------------------------
-        # Action Space: 0: No-op, 1: +CPU, 2: -CPU, 3: +Mem, 4: -Mem, 5: +Repl, 6: -Repl
+        
+        # Action Space: 7 discrete actions
         self.action_space = spaces.Discrete(7)
-
-        self.action_mapping = { # I DO NOT KNOW IF I NEED THIS
+        self.action_mapping = {
             0: {"type": "noop"},
             1: {"type": "bump_cpu_small", "step": "500m"},
             2: {"type": "bump_mem_small", "step": "256Mi"},
@@ -96,27 +70,17 @@ class SimKubeGymEnv(gym.Env):
             5: {"type": "reduce_mem_small", "step": "256Mi"},
             6: {"type": "scale_down_replicas", "delta": 1},
         }
-        
-        # Example: If your observation is an array of 5 cluster metrics (CPU, Mem, etc.)
-        # self.observation_space = spaces.Box(low=0.0, high=np.inf, shape=(5,), dtype=np.float32)
 
-        self.observation_space = spaces.Dict({
-            "ready": spaces.Discrete(100),
-            "pending": spaces.Discrete(100),
-            "total": spaces.Discrete(100),
-            "cpu_millicores": spaces.Box(low=0, high=10000, shape=(1,), dtype=np.int32),
-            "memory_bytes": spaces.Box(low=0, high=10**12, shape=(1,), dtype=np.int64),
-            "replicas": spaces.Discrete(50)
-        })
+        # Observation Space: 5-dimensional continuous state space
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
+        )
 
-        self.current_trace_obj = None # Will hold the trace mapping
-        self.simulation_handle = None
-
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Resets the environment to an initial state and returns the initial observation."""
         super().reset(seed=seed)
         self.current_step = 0
-
+        
         # Set up the working directory for traces
         tmp_dir = Path(".tmp")
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -124,126 +88,181 @@ class SimKubeGymEnv(gym.Env):
         # Copy the initial trace to be our starting active trace
         self.current_trace_path = str(tmp_dir / f"trace-active-{self._generate_id()}.msgpack")
         shutil.copy2(self.initial_trace_path, self.current_trace_path)
-        
-        # 1. Clean up the previous simulation if it exists
-        if self.current_sim_name:
-            self.sim_env.delete(name=self.current_sim_name, namespace=self.namespace)
 
-        # 2. Create a unique name for the new simulation run
-        self.current_sim_name = f"sim-{uuid.uuid4().hex[:8]}"
+        # Run the initial simulation to observe the starting cluster state
+        raw_obs, resources = self._run_simulation_and_observe(self.current_trace_path)
         
-        # 3. Start the simulation in the cluster
-        self.sim_env = self.sim_env.create(
-            name=self.current_sim_name,
-            trace_path=self.trace_path,
-            namespace=self.namespace,
-            duration_s=self.duration_s
+        dqn_state = self._compute_dqn_state(raw_obs, resources)
+        info = {"raw_obs": raw_obs, "resources": resources, "trace_path": self.current_trace_path}
+        
+        return np.array(dqn_state, dtype=np.float32), info
+
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Takes a step in the environment."""
+        self.current_step += 1
+        
+        # 1. Map and Apply the action to the current trace
+        action_dict = self.action_mapping[action]
+        next_trace_path = str(Path(".tmp") / f"trace-step{self.current_step}-{self._generate_id()}.msgpack")
+        
+        _, action_info = self._apply_action(self.current_trace_path, action_dict, next_trace_path)
+        self.current_trace_path = next_trace_path
+
+        # 2. Run the Kubernetes Simulation with the new trace
+        raw_obs, resources = self._run_simulation_and_observe(self.current_trace_path)
+        
+        # 3. Compute new state representation
+        dqn_state = self._compute_dqn_state(raw_obs, resources)
+        
+        # 4. Compute Reward
+        reward_fn = get_reward(self.reward_name, **self.reward_kwargs)
+        reward = reward_fn(
+            obs=raw_obs,
+            target_total=self.target,
+            T_s=self.duration,
+            resources=resources,
+            step_idx=self.current_step,
+            action_info=action_info
         )
-        
-        # 4. Wait a moment for the cluster to initialize the simulation pods
-        self.sim_env.wait_fixed(5) 
-        
-        # 5. Fetch the initial state of the cluster
-        observation = self._get_obs()
-        info = self._get_info()
-        
-        return observation, info
 
-    def step(self, action):
-        """Applies an action, advances the environment, and returns the new state."""
+        # 5. Check Termination Conditions
+        ready = raw_obs.get("ready", 0)
+        total = raw_obs.get("total", 0)
+        pending = raw_obs.get("pending", 0)
         
-        # 1. Apply the action to the Kubernetes cluster
-        # e.g., if action == 0: scale_down(), elif action == 1: scale_up()
-        self._apply_action(action)
+        terminated = (ready == self.target and total == self.target and pending == 0)
+        truncated = self.current_step >= self.max_steps
 
-        # 1. Apply Action using your operations
-        if action == 1: bump_cpu_small(self.current_trace_obj, deploy)
-        elif action == 2: reduce_cpu_small(self.current_trace_obj, deploy)
-        elif action == 3: bump_mem_small(self.current_trace_obj, deploy)
-        elif action == 4: reduce_mem_small(self.current_trace_obj, deploy)
-        elif action == 5: scale_up_replicas(self.current_trace_obj, deploy)
-        elif action == 6: scale_down_replicas(self.current_trace_obj, deploy)
-        
-        # 2. Let the simulation run for a timestep
-        # If duration_s in __init__ is the total simulation length, you might 
-        # instead want a smaller step duration here.
-        step_duration = 10 
-        self.sim_env.wait_fixed(step_duration)
-
-        self.sim_handler.wait_fixed(self.config["step_duration"])
-        
-        # 3. Gather new metrics
-        observation = self._get_obs()
-        
-        # 4. Calculate the reward based on the new state
-        reward = self._calculate_reward(observation)
-
-        # 4. Calculate reward
-        resources = current_requests(self.config["namespace"], deploy)
-        reward = self.reward_fn(
-            obs=obs,
-            target_total=self.config["target_pods"],
-            T_s=self.config["step_duration"],
-            resources=resources
-        )
-        
-        # 5. Determine if the episode is done (e.g., trace is finished, or cluster crashed)
-        terminated = self._check_terminated(observation)
-        truncated = False # Set to True if hitting a hard time limit
-        
-        info = self._get_info()
-        
-        return observation, reward, terminated, truncated, info
-
-    def render(self):
-        """Visualizes the environment."""
-        if self.render_mode == "console":
-            print(f"Current Sim: {self.current_sim_name} | Status: Running")
-
-    def close(self):
-        """Cleans up cluster resources when the environment is closed."""
-        if self.current_sim_name:
-            self.sim_env.delete(name=self.current_sim_name, namespace=self.namespace)
-            self.current_sim_name = None
-
-    # --- Helper Methods to be filled in with your specific logic ---
-
-    def _get_obs(self):
-        # `observe.reader` logic here to pull metrics from K8s/Prometheus
-        # return a numpy array that matches self.observation_space
-        # return np.zeros(5, dtype=np.float32)
-
-        # Use your existing observation logic
-        pod_stats = observe(self.config["namespace"], self.config["deployment_name"])
-        res_stats = current_requests(self.config["namespace"], self.config["deployment_name"])
-        
-        # Format as defined in self.observation_space
-        return {
-            "ready": pod_stats["ready"],
-            "pending": pod_stats["pending"],
-            "total": pod_stats["total"],
-            "cpu_millicores": np.array([res_stats.get("cpu", 0)], dtype=np.int32),
-            "memory_bytes": np.array([res_stats.get("memory", 0)], dtype=np.int64),
-            "replicas": res_stats["replicas"]
+        info = {
+            "raw_obs": raw_obs,
+            "resources": resources,
+            "action_info": action_info,
+            "trace_path": self.current_trace_path
         }
 
-    def _apply_action(self, action):
-        # Use your `env.actions.ops` logic here to interact with K8s
-        pass
+        return np.array(dqn_state, dtype=np.float32), float(reward), terminated, truncated, info
 
-    def _calculate_reward(self, observation):
-        # Use your `observe.reward` logic here
-        return 0.0
-
-    def _check_terminated(self, observation):
-        # Logic to decide if the simulation trace is complete
-        return False
+    def _run_simulation_and_observe(self, trace_path: str):
+        """Helper to run the SimKube lifecycle and return the observation."""
+        sim_name = f"diag-{self._generate_id()}"
+        trace_filename = Path(trace_path).name
+        cluster_trace_path = f"file:///data/{trace_filename}"
         
-    def _get_info(self):
-        # Optional dictionary for debugging metrics
-        return {"simulation_name": self.simulation_handle.get("name") if self.simulation_handle else None}
-    
-    def close(self):
-        # Ensure simulation is deleted from the cluster on exit
-        if self.simulation_handle:
-            self.sim_handler.delete(handle=self.simulation_handle)
+        # Pre-start hook
+        run_hooks("pre_start", self.virtual_namespace, deploy=self.deploy)
+        
+        # Copy trace to kind node
+        node_data_dir = _get_node_data_dir(self.namespace)
+        node_data_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(trace_path, node_data_dir / trace_filename)
+
+        # Execute Simulation
+        sim_uid = None
+        try:
+            sim_uid = self.sim_env.create(
+                name=sim_name, trace_path=cluster_trace_path, 
+                duration_s=self.duration, namespace=self.namespace
+            )
+            wait_for_driver_ready(sim_name)
+            self.sim_env.wait_fixed(self.duration)
+            
+            # Smart Polling
+            obs = None
+            for _ in range(8): 
+                try:
+                    obs = observe(self.virtual_namespace, self.deploy)
+                    if obs and obs.get("total", 0) > 0:
+                        break
+                except Exception:
+                    pass # Ignore API failures
+                time.sleep(2)
+
+            if self.obs_noise_scale > 0 and obs is not None:
+                obs = add_obs_noise(obs, self.obs_noise_scale, rng=np.random.default_rng())
+            
+            try:
+                resources = current_requests(self.virtual_namespace, self.deploy)
+            except Exception as e:
+                logger.warning(f"K8s 404: Deployment '{self.deploy}' not found. Defaulting to 0 resources.")
+                resources = {"cpu": "0m", "memory": "0Mi", "replicas": 0}
+            
+        finally:
+            if sim_uid:
+                try:
+                    self.sim_env.delete(name=sim_name, namespace=self.namespace)
+                except Exception as e:
+                    logger.warning(f"Failed to delete simulation {sim_name}: {e}")
+
+        # Provide fallback if observation fails
+        if obs is None:
+            obs = {"ready": 0, "pending": 0, "total": 0}
+
+        return obs, resources
+
+    def _apply_action(self, trace_path: str, action: dict, output_path: str):
+        """Applies the modification to the JSON/Msgpack trace file."""
+        trace = load_trace(trace_path)
+        current_state = _extract_current_state(trace, self.deploy)
+        
+        is_valid, error_msg = validate_action(action, current_state=current_state)
+        if not is_valid:
+            save_trace(trace, output_path)
+            return output_path, {"changed": False, "action_type": action.get("type"), "blocked": True, "error": error_msg}
+        
+        action_type = action.get("type", "noop")
+        changed = False
+        
+        if action_type == "noop":
+            pass
+        elif action_type == "bump_cpu_small":
+            changed = bump_cpu_small(trace, self.deploy, step=action.get("step", "500m"))
+        elif action_type == "bump_mem_small":
+            changed = bump_mem_small(trace, self.deploy, step=action.get("step", "256Mi"))
+        elif action_type == "reduce_cpu_small":
+            changed = reduce_cpu_small(trace, self.deploy, step=action.get("step", "500m"))
+        elif action_type == "reduce_mem_small":
+            changed = reduce_mem_small(trace, self.deploy, step=action.get("step", "256Mi"))
+        elif action_type == "scale_up_replicas":
+            changed = scale_up_replicas(trace, self.deploy, delta=action.get("delta", 1))
+        elif action_type == "scale_down_replicas":
+            changed = scale_down_replicas(trace, self.deploy, delta=action.get("delta", 1))
+            
+        save_trace(trace, output_path)
+        return output_path, {"changed": changed, "action_type": action_type, "blocked": False}
+
+    def _compute_dqn_state(self, obs, resources):
+        """Translates raw kubernetes state into the 5D float vector expected by RL algorithms."""
+        cpu_raw = str(resources.get("cpu", "0m"))
+        cpu_m = int(cpu_raw[:-1]) if cpu_raw.endswith("m") else int(float(cpu_raw) * 1000)
+
+        mem_raw = str(resources.get("memory", "0Mi"))
+        if mem_raw.endswith("Gi"):
+            mem_mi = int(float(mem_raw[:-2]) * 1024)
+        elif mem_raw.endswith("Mi"):
+            mem_mi = int(mem_raw[:-2])
+        else:
+            mem_mi = int("".join(filter(str.isdigit, mem_raw)) or 0)
+
+        distance = self.target - obs.get("total", 0)
+        total = obs.get("total", 0)
+        
+        replicas = resources.get("replicas", total)
+        try:
+            replicas = int(replicas) if isinstance(replicas, (int, float)) else int(str(replicas))
+        except (ValueError, TypeError):
+            replicas = total
+
+        return [
+            cpu_m / 4000.0,
+            mem_mi / 4096.0,
+            obs.get("pending", 0) / 5.0,
+            distance / 5.0,
+            min(1.0, replicas / 8.0),
+        ]
+
+    def _generate_id(self):
+        """Generates a deterministic ID based on the environment's random seed."""
+        # Use the built-in seeded random generator instead of datetime.now()
+        # so that Gymnasium's determinism checks pass.
+        val = self.np_random.integers(10000000, 99999999)
+        return str(val)
