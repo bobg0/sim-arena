@@ -1,0 +1,69 @@
+{
+  "ami_id": "ami-08d19a1b7f569b848",
+  "created_at": "2026-03-24T22:37:24.290335+00:00",
+  "instance_type": "c6a.xlarge",
+  "instances": [
+    {
+      "bootstrap": {
+        "error": null,
+        "secret_applied": false,
+        "ssh_ready": false
+      },
+      "instance_id": "i-0eed80e2a05a22f0a",
+      "launch_time": "2026-03-24T22:34:35+00:00",
+      "name": "sim-arena-worker-20260324-223434-01",
+      "private_dns": "ip-172-31-33-251.us-east-2.compute.internal",
+      "private_ip": "172.31.33.251",
+      "public_dns": "ec2-18-191-187-58.us-east-2.compute.amazonaws.com",
+      "public_ip": "18.191.187.58",
+      "state": "running",
+      "tags": {
+        "Name": "sim-arena-worker-20260324-223434-01",
+        "Project": "sim-arena",
+        "Role": "worker",
+        "SimArenaRunId": "20260324-223434",
+        "TraceBucket": "bob-simarena-traces",
+        "TracePath": "s3://bob-simarena-traces/demo/trace-mem-slight.msgpack",
+        "WorkerId": "01"
+      },
+      "worker_id": "01"
+    },
+    {
+      "bootstrap": {
+        "error": null,
+        "secret_applied": false,
+        "ssh_ready": false
+      },
+      "instance_id": "i-006f938e806d7a328",
+      "launch_time": "2026-03-24T22:34:36+00:00",
+      "name": "sim-arena-worker-20260324-223434-02",
+      "private_dns": "ip-172-31-38-102.us-east-2.compute.internal",
+      "private_ip": "172.31.38.102",
+      "public_dns": "ec2-3-17-37-89.us-east-2.compute.amazonaws.com",
+      "public_ip": "3.17.37.89",
+      "state": "running",
+      "tags": {
+        "Name": "sim-arena-worker-20260324-223434-02",
+        "Project": "sim-arena",
+        "Role": "worker",
+        "SimArenaRunId": "20260324-223434",
+        "TraceBucket": "bob-simarena-traces",
+        "TracePath": "s3://bob-simarena-traces/demo/trace-mem-slight.msgpack",
+        "WorkerId": "02"
+      },
+      "worker_id": "02"
+    }
+  ],
+  "key_name": "bob-s3-test-key",
+  "project_tag": "sim-arena",
+  "region": "us-east-2",
+  "run_id": "20260324-223434",
+  "security_group_ids": [
+    "sg-06cddec780dfbdae4"
+  ],
+  "subnet_id": "subnet-09f1a971bd8077ea7",
+  "trace_bucket": "bob-simarena-traces",
+  "trace_path": "s3://bob-simarena-traces/demo/trace-mem-slight.msgpack",
+  "volume_size_gb": 100,
+  "worker_prefix": "sim-arena-worker"
+}

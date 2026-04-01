@@ -1,9 +1,12 @@
-from gymnasium.envs.registration import register
-
-register(
-    id="SimKube-v0",
-    entry_point="env.simkube_gymenv:SimKubeEnv",
-)
+try:
+    from gymnasium.envs.registration import register
+except Exception:  # pragma: no cover - optional dependency for RL workflows
+    register = None
+else:
+    register(
+        id="SimKube-v0",
+        entry_point="env.simkube_gymenv:SimKubeEnv",
+    )
 
 
 """Environment module for creating and managing SimKube simulations."""
