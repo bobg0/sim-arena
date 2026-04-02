@@ -39,6 +39,12 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from protocol.schemas import JobManifest, JobResult
+from protocol.sync_paths import (
+    checkpoint_ext,
+    from_worker_ckpt_key,
+    from_worker_done_key,
+    to_worker_weights_key,
+)
 from protocol.s3_helpers import (
     copy_object,
     download_file,
@@ -53,10 +59,6 @@ from runner.distributed import read_msgpack, write_msgpack
 logger = logging.getLogger("worker")
 
 PROJECT_ROOT = Path(__file__).parent.parent
-
-# Map agent name → checkpoint file extension (mirrors train.py logic)
-_AGENT_EXT = {"dqn": ".pt", "greedy": ".json", "random": ".json"}
-
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -83,7 +85,7 @@ def _worker_id() -> str:
 
 
 def _ext_for_agent(agent: str) -> str:
-    return _AGENT_EXT.get(agent, ".pt")
+    return checkpoint_ext(agent)
 
 
 def _extract_metrics(ckpt_path: Path, agent: str) -> Tuple[int, Optional[float], Optional[float]]:
@@ -224,18 +226,6 @@ def _run_experience_collection_job(manifest: JobManifest, worker_id: str, bucket
         )
 
 
-def _sync_from_worker_ckpt_key(job_id: str, finished_ep: int, ext: str) -> str:
-    return f"results/{job_id}/sync/from_worker/after_ep_{finished_ep:04d}/checkpoint{ext}"
-
-
-def _sync_from_worker_done_key(job_id: str, finished_ep: int) -> str:
-    return f"results/{job_id}/sync/from_worker/after_ep_{finished_ep:04d}/done.json"
-
-
-def _sync_to_worker_weights_key(job_id: str, before_ep: int, ext: str) -> str:
-    return f"results/{job_id}/sync/to_worker/before_ep_{before_ep:04d}/weights{ext}"
-
-
 def _wait_for_server_weights(
     bucket: str,
     key: str,
@@ -282,9 +272,9 @@ def _run_training_job_per_episode_sync(
 
         for ep in range(1, manifest.episodes + 1):
             if ep >= 2:
-                server_key = _sync_to_worker_weights_key(manifest.job_id, ep, ext)
+                server_key = to_worker_weights_key(manifest.job_id, ep, ext)
                 if manifest.sync_identity_server:
-                    src = _sync_from_worker_ckpt_key(manifest.job_id, ep - 1, ext)
+                    src = from_worker_ckpt_key(manifest.job_id, ep - 1, ext)
                     logger.info(
                         f"sync_identity_server: copying s3://{bucket}/{src} → "
                         f"s3://{bucket}/{server_key}"
@@ -351,7 +341,7 @@ def _run_training_job_per_episode_sync(
             if not round_save.exists():
                 raise RuntimeError(f"Missing checkpoint after episode round {ep}: {round_save}")
 
-            ckpt_key = _sync_from_worker_ckpt_key(manifest.job_id, ep, ext)
+            ckpt_key = from_worker_ckpt_key(manifest.job_id, ep, ext)
             upload_file(str(round_save), bucket, ckpt_key)
 
             e_done, _, ep_final = _extract_metrics(round_save, manifest.agent)
@@ -360,10 +350,12 @@ def _run_training_job_per_episode_sync(
 
             put_json(
                 bucket,
-                _sync_from_worker_done_key(manifest.job_id, ep),
+                from_worker_done_key(manifest.job_id, ep),
                 {
                     "job_id": manifest.job_id,
                     "worker_id": worker_id,
+                    "agent": manifest.agent,
+                    "total_episodes": manifest.episodes,
                     "episode_index": ep,
                     "episodes_completed_in_checkpoint": e_done,
                     "episode_reward": ep_final,

@@ -514,7 +514,7 @@ For scaling beyond a single machine, jobs are defined as **manifests in S3**; **
 
 | Topic | Location |
 |-------|----------|
-| Protocol (manifests, results, CLI) | [`docs/WORKER_PROTOCOL.md`](docs/WORKER_PROTOCOL.md), `protocol/` |
+| Protocol (manifests, results, CLI) | [`docs/WORKER_PROTOCOL.md`](docs/WORKER_PROTOCOL.md), `protocol/` (run `sync_server.py` with `--per-episode-sync` jobs) |
 | Launch many EC2 workers + inventory JSON | [`docs/EC2_MULTI_WORKER_RUNBOOK.md`](docs/EC2_MULTI_WORKER_RUNBOOK.md), `ops/ec2_workers.py` |
 | Single-instance AMI / S3 secret setup | [`docs/EC2_SETUP_FROM_SCRATCH.md`](docs/EC2_SETUP_FROM_SCRATCH.md) |
 | Roadmap (tasks 1–3) | [`docs/NEXT_TASKS.md`](docs/NEXT_TASKS.md) |
@@ -581,6 +581,7 @@ Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `d
 | Cluster health checks | `ops/preflight.py` |
 | S3 job dispatch (submit/list) | `protocol/dispatch.py` |
 | EC2 worker polling loop | `protocol/worker.py` |
+| Per-episode S3 barrier (pass-through weights) | `protocol/sync_server.py` |
 | EC2 fleet launch / terminate | `ops/ec2_workers.py` |
 
 ### Data Flow

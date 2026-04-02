@@ -203,17 +203,37 @@ when the **central server must refresh weights between every episode** on the sa
 1. Run `train.py` with `--episodes 1` for each episode (separate subprocess per episode).
 2. After episode `e`, upload the checkpoint to  
    `results/<job_id>/sync/from_worker/after_ep_XXXX/checkpoint.{pt|json}`  
-   and write `done.json` next to it (episode index, reward, worker id).
+   and write `done.json` next to it (`episode_index`, `total_episodes`, `agent`, reward, worker id).
 3. Before episode `e+1` (when `e+1 >= 2`), wait until the server object exists:  
    `results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json}`  
    then download it and pass it to `train.py` as `--load … --transfer`.
 4. After the last episode, the worker still writes `checkpoint_final.*`, `train.log`, and `result.json` as in the default layout.
 
-**Task 3 (central server)** reads `from_worker/after_ep_*`, runs aggregation, and writes the next `to_worker/before_ep_*` weights. The worker does **not** implement aggregation.
+### Included sync server (`sync_server.py`)
 
-**Testing without Task 3:** `dispatch.py submit --per-episode-sync --sync-identity-server …` sets `sync_identity_server: true` on the manifest so the worker **copies** the previous checkpoint into the next `to_worker/…` key (echo server). Use only for development.
+The repo ships **`protocol/sync_server.py`**, a small process that **polls S3** and, whenever it sees
+`from_worker/after_ep_XXXX/done.json`, **copies** the matching worker checkpoint to
+`to_worker/before_ep_{XXXX+1}/weights.*` if that key does not exist yet. That is an **identity
+(pass-through)** barrier: it completes the loop so workers do not need `--sync-identity-server`.
 
-**Timeouts:** `sync_server_weights_timeout_seconds` (manifest / future CLI) caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
+Run it anywhere with bucket credentials (laptop, tiny EC2, systemd service):
+
+```bash
+cd ~/work/sim-arena && source .venv/bin/activate
+export JOBS_BUCKET=your-jobs-bucket
+python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 15
+# one-shot (e.g. cron):
+python protocol/sync_server.py --bucket "$JOBS_BUCKET" --once
+```
+
+**Replacing pass-through with real aggregation:** swap the `copy_object` step in `sync_server.py`
+for your own logic (e.g. FedAvg over several checkpoints), or run a separate service that writes
+the same `to_worker/…` keys. The worker only cares that the object appears.
+
+**Testing without `sync_server.py`:** `dispatch.py submit --per-episode-sync --sync-identity-server …`
+still makes the worker copy the checkpoint into the next `to_worker/…` key on the instance itself.
+
+**Timeouts:** `sync_server_weights_timeout_seconds` on the manifest caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
 
 **Parallel EC2 instances:** unchanged — each instance claims a different `job_id` under `jobs/pending/`. Submit one manifest per instance (or run `ops/ec2_workers.py` / your launcher) so many workers pick up different jobs in parallel.
 
@@ -253,11 +273,14 @@ The worker inherits these from the shell (same as running `train.py` directly):
 
 ```
 protocol/
-  schemas.py     — JobManifest and JobResult dataclasses
-  s3_helpers.py  — thin boto3 wrappers (upload, download, list, put/get JSON)
-  worker.py      — EC2 worker polling loop
-  dispatch.py    — submit jobs and check status from a laptop or central server
+  schemas.py      — JobManifest and JobResult dataclasses
+  s3_helpers.py   — thin boto3 wrappers (upload, download, list, put/get JSON)
+  sync_paths.py   — S3 key helpers for per-episode sync
+  sync_server.py  — polls S3 and publishes next-episode weights (identity copy by default)
+  worker.py       — EC2 worker polling loop
+  dispatch.py     — submit jobs and check status from a laptop or central server
 
 tests/
-  test_protocol.py — unit tests (no AWS credentials required)
+  test_protocol.py   — worker/dispatch/schema tests (mocked)
+  test_sync_server.py — sync server and path tests (mocked)
 ```
