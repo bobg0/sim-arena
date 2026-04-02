@@ -581,7 +581,7 @@ Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `d
 | Cluster health checks | `ops/preflight.py` |
 | S3 job dispatch (submit/list) | `protocol/dispatch.py` |
 | EC2 worker polling loop | `protocol/worker.py` |
-| Per-episode S3 barrier (pass-through weights) | `protocol/sync_server.py` |
+| Per-episode S3 barrier + optional FedAvg across workers | `protocol/sync_server.py`, `protocol/federated_avg.py` |
 | EC2 fleet launch / terminate | `ops/ec2_workers.py` |
 
 ### Data Flow

@@ -41,6 +41,9 @@ if str(_project_root) not in sys.path:
 from protocol.schemas import JobManifest, JobResult
 from protocol.sync_paths import (
     checkpoint_ext,
+    federation_from_ckpt_key,
+    federation_from_done_key,
+    federation_global_weights_key,
     from_worker_ckpt_key,
     from_worker_done_key,
     to_worker_weights_key,
@@ -254,10 +257,21 @@ def _run_training_job_per_episode_sync(
     """
     Run N episodes as N separate train.py processes. After each episode, upload checkpoint
     and metrics; wait for Task 3 to place the next weights under sync/to_worker/, then continue.
+
+    If manifest.federation_group_id is set, uploads go under results/_federation/<group>/...
+    and all workers wait on the same global_weights object (FedAvg produced by sync_server).
     """
     combined_log = job_dir / "train.log"
     episode_rewards: list[float] = []
     weights_path: Optional[str] = None
+    fed_group = (manifest.federation_group_id or "").strip()
+    use_federation = bool(fed_group)
+    if use_federation and manifest.agent != "dqn":
+        raise ValueError(
+            "federation_group_id is only supported with agent=dqn (FedAvg over .pt checkpoints)"
+        )
+    if use_federation and manifest.federation_size < 1:
+        raise ValueError("federation_size must be >= 1")
 
     try:
         if manifest.weights_s3_uri:
@@ -272,17 +286,15 @@ def _run_training_job_per_episode_sync(
 
         for ep in range(1, manifest.episodes + 1):
             if ep >= 2:
-                server_key = to_worker_weights_key(manifest.job_id, ep, ext)
-                if manifest.sync_identity_server:
-                    src = from_worker_ckpt_key(manifest.job_id, ep - 1, ext)
+                if use_federation:
+                    if manifest.sync_identity_server:
+                        raise ValueError(
+                            "sync_identity_server is not supported with federation_group_id; "
+                            "run sync_server.py with FedAvg instead"
+                        )
+                    server_key = federation_global_weights_key(fed_group, ep, ext)
                     logger.info(
-                        f"sync_identity_server: copying s3://{bucket}/{src} → "
-                        f"s3://{bucket}/{server_key}"
-                    )
-                    copy_object(bucket, src, server_key)
-                else:
-                    logger.info(
-                        f"Waiting for server weights before episode {ep} "
+                        f"Waiting for federated global weights before episode {ep} "
                         f"(s3://{bucket}/{server_key})"
                     )
                     _wait_for_server_weights(
@@ -291,6 +303,26 @@ def _run_training_job_per_episode_sync(
                         manifest.sync_weights_poll_interval_seconds,
                         float(manifest.sync_server_weights_timeout_seconds),
                     )
+                else:
+                    server_key = to_worker_weights_key(manifest.job_id, ep, ext)
+                    if manifest.sync_identity_server:
+                        src = from_worker_ckpt_key(manifest.job_id, ep - 1, ext)
+                        logger.info(
+                            f"sync_identity_server: copying s3://{bucket}/{src} → "
+                            f"s3://{bucket}/{server_key}"
+                        )
+                        copy_object(bucket, src, server_key)
+                    else:
+                        logger.info(
+                            f"Waiting for server weights before episode {ep} "
+                            f"(s3://{bucket}/{server_key})"
+                        )
+                        _wait_for_server_weights(
+                            bucket,
+                            server_key,
+                            manifest.sync_weights_poll_interval_seconds,
+                            float(manifest.sync_server_weights_timeout_seconds),
+                        )
                 weights_path = str(job_dir / f"server_weights_ep_{ep:04d}{ext}")
                 download_file(bucket, server_key, weights_path)
 
@@ -341,27 +373,35 @@ def _run_training_job_per_episode_sync(
             if not round_save.exists():
                 raise RuntimeError(f"Missing checkpoint after episode round {ep}: {round_save}")
 
-            ckpt_key = from_worker_ckpt_key(manifest.job_id, ep, ext)
+            if use_federation:
+                ckpt_key = federation_from_ckpt_key(fed_group, ep, worker_id, ext)
+            else:
+                ckpt_key = from_worker_ckpt_key(manifest.job_id, ep, ext)
             upload_file(str(round_save), bucket, ckpt_key)
 
             e_done, _, ep_final = _extract_metrics(round_save, manifest.agent)
             if ep_final is not None:
                 episode_rewards.append(float(ep_final))
 
-            put_json(
-                bucket,
-                from_worker_done_key(manifest.job_id, ep),
-                {
-                    "job_id": manifest.job_id,
-                    "worker_id": worker_id,
-                    "agent": manifest.agent,
-                    "total_episodes": manifest.episodes,
-                    "episode_index": ep,
-                    "episodes_completed_in_checkpoint": e_done,
-                    "episode_reward": ep_final,
-                    "checkpoint_s3_uri": f"s3://{bucket}/{ckpt_key}",
-                },
-            )
+            done_payload = {
+                "job_id": manifest.job_id,
+                "worker_id": worker_id,
+                "agent": manifest.agent,
+                "total_episodes": manifest.episodes,
+                "episode_index": ep,
+                "episodes_completed_in_checkpoint": e_done,
+                "episode_reward": ep_final,
+                "checkpoint_s3_uri": f"s3://{bucket}/{ckpt_key}",
+            }
+            if use_federation:
+                done_payload["federation_group_id"] = fed_group
+                done_payload["federation_size"] = manifest.federation_size
+
+            if use_federation:
+                done_key = federation_from_done_key(fed_group, ep, worker_id)
+            else:
+                done_key = from_worker_done_key(manifest.job_id, ep)
+            put_json(bucket, done_key, done_payload)
 
             # Final artifact for the classic protocol layout
             shutil.copy2(round_save, save_path)

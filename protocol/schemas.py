@@ -60,6 +60,13 @@ class JobManifest:
     # `to_worker` key (simulates the server echoing weights back without Task 3).
     sync_identity_server: bool = False
 
+    # Federated learning: all jobs with the same non-empty federation_group_id share one
+    # global model between episodes. Each worker uploads under results/_federation/<group>/...
+    # sync_server.py waits for federation_size submissions, runs FedAvg (DQN .pt only),
+    # then writes global_weights for the next episode. Requires per_episode_s3_sync=True.
+    federation_group_id: Optional[str] = None
+    federation_size: int = 1
+
     created_at: str = field(default_factory=_now_iso)
 
     def to_json(self) -> str:

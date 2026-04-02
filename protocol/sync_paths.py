@@ -21,3 +21,29 @@ def from_worker_done_key(job_id: str, finished_ep: int) -> str:
 
 def to_worker_weights_key(job_id: str, before_ep: int, ext: str) -> str:
     return f"results/{job_id}/sync/to_worker/before_ep_{before_ep:04d}/weights{ext}"
+
+
+# --- Federated runs (multiple workers share one global model between episodes) ---
+
+FEDERATION_PREFIX = "results/_federation"
+
+
+def federation_from_ckpt_key(group_id: str, ep: int, worker_id: str, ext: str) -> str:
+    return (
+        f"{FEDERATION_PREFIX}/{group_id}/from_worker/after_ep_{ep:04d}/"
+        f"{worker_id}/checkpoint{ext}"
+    )
+
+
+def federation_from_done_key(group_id: str, ep: int, worker_id: str) -> str:
+    return (
+        f"{FEDERATION_PREFIX}/{group_id}/from_worker/after_ep_{ep:04d}/"
+        f"{worker_id}/done.json"
+    )
+
+
+def federation_global_weights_key(group_id: str, before_ep: int, ext: str) -> str:
+    """Single checkpoint all workers download before starting episode `before_ep`."""
+    return (
+        f"{FEDERATION_PREFIX}/{group_id}/to_worker/before_ep_{before_ep:04d}/global_weights{ext}"
+    )

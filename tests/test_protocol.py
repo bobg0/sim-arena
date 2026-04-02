@@ -101,6 +101,23 @@ class TestJobManifest:
         assert r.sync_weights_poll_interval_seconds == 5
         assert r.sync_server_weights_timeout_seconds == 60
 
+    def test_federation_fields_default(self):
+        m = JobManifest(job_id="jf", trace_s3_uri="s3://b/t.msgpack")
+        assert m.federation_group_id is None
+        assert m.federation_size == 1
+
+    def test_federation_roundtrip_json(self):
+        m = JobManifest(
+            job_id="jf2",
+            trace_s3_uri="s3://b/t.msgpack",
+            per_episode_s3_sync=True,
+            federation_group_id="run-2026-04-03",
+            federation_size=4,
+        )
+        r = JobManifest.from_json(m.to_json())
+        assert r.federation_group_id == "run-2026-04-03"
+        assert r.federation_size == 4
+
 
 class TestJobResult:
     def _make(self, **kwargs):

@@ -226,12 +226,38 @@ python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 15
 python protocol/sync_server.py --bucket "$JOBS_BUCKET" --once
 ```
 
-**Replacing pass-through with real aggregation:** swap the `copy_object` step in `sync_server.py`
-for your own logic (e.g. FedAvg over several checkpoints), or run a separate service that writes
-the same `to_worker/…` keys. The worker only cares that the object appears.
+### Federated learning (shared global weights, **DQN only**)
 
-**Testing without `sync_server.py`:** `dispatch.py submit --per-episode-sync --sync-identity-server …`
-still makes the worker copy the checkpoint into the next `to_worker/…` key on the instance itself.
+Use the same **`federation_group_id`** on every worker’s manifest and set **`federation_size`**
+to the number of workers that must finish an episode before the round advances.
+
+- **Dispatch:**  
+  `dispatch.py submit … --federation-group my-run-001 --federation-size 2`  
+  (implies per-episode sync; **agent must be `dqn`**.)
+
+- **Worker uploads** (per episode, per machine):  
+  `results/_federation/<group_id>/from_worker/after_ep_XXXX/<worker_id>/checkpoint.pt`  
+  plus `done.json` (includes `federation_size`, `total_episodes`, `agent`).
+
+- **`sync_server.py`** waits until **`federation_size`** distinct `worker_id`s have uploaded for
+  that group and episode, then runs **FedAvg** (mean of `q_net_state_dict` and
+  `target_net_state_dict`), and writes **one** file for everyone:  
+  `results/_federation/<group_id>/to_worker/before_ep_XXXX/global_weights.pt`
+
+- **Before the next episode**, every worker in the group downloads that **same** object. All
+  machines then continue from the **same averaged** policy.
+
+**Important:** submit **exactly `federation_size` jobs** with the same `--federation-group` and
+`--federation-size`, or workers will block until the barrier fills. If more than
+`federation_size` workers submit for the same episode, the server averages the first
+`federation_size` IDs (sorted lexicographically) — avoid over-submitting.
+
+**Non-federated jobs** (no `federation_group_id`) still use the per-job `results/<job_id>/sync/…`
+layout and identity `copy_object` in `sync_server.py`.
+
+**Testing a single worker without `sync_server.py`:** use `--per-episode-sync --sync-identity-server`
+so the worker copies its own checkpoint into the next `to_worker/…` key. **Do not** use
+`--sync-identity-server` with `--federation-group` (disallowed); use `sync_server.py` for FedAvg.
 
 **Timeouts:** `sync_server_weights_timeout_seconds` on the manifest caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
 
@@ -276,11 +302,13 @@ protocol/
   schemas.py      — JobManifest and JobResult dataclasses
   s3_helpers.py   — thin boto3 wrappers (upload, download, list, put/get JSON)
   sync_paths.py   — S3 key helpers for per-episode sync
-  sync_server.py  — polls S3 and publishes next-episode weights (identity copy by default)
-  worker.py       — EC2 worker polling loop
-  dispatch.py     — submit jobs and check status from a laptop or central server
+  sync_server.py   — polls S3: identity barriers + FedAvg for federation groups
+  federated_avg.py — mean of DQN q_net / target_net checkpoints
+  worker.py        — EC2 worker polling loop
+  dispatch.py      — submit jobs and check status from a laptop or central server
 
 tests/
-  test_protocol.py   — worker/dispatch/schema tests (mocked)
-  test_sync_server.py — sync server and path tests (mocked)
+  test_protocol.py     — worker/dispatch/schema tests (mocked)
+  test_sync_server.py  — sync server and path tests (mocked)
+  test_federated_avg.py — FedAvg tensor math
 ```
