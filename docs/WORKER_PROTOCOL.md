@@ -193,6 +193,36 @@ cleanly from the new weights.
 
 ---
 
+## Per-episode S3 sync (optional)
+
+Set `per_episode_s3_sync: true` on the manifest (CLI: `dispatch.py submit --per-episode-sync …`)
+when the **central server must refresh weights between every episode** on the same job.
+
+**Worker behaviour**
+
+1. Run `train.py` with `--episodes 1` for each episode (separate subprocess per episode).
+2. After episode `e`, upload the checkpoint to  
+   `results/<job_id>/sync/from_worker/after_ep_XXXX/checkpoint.{pt|json}`  
+   and write `done.json` next to it (episode index, reward, worker id).
+3. Before episode `e+1` (when `e+1 >= 2`), wait until the server object exists:  
+   `results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json}`  
+   then download it and pass it to `train.py` as `--load … --transfer`.
+4. After the last episode, the worker still writes `checkpoint_final.*`, `train.log`, and `result.json` as in the default layout.
+
+**Task 3 (central server)** reads `from_worker/after_ep_*`, runs aggregation, and writes the next `to_worker/before_ep_*` weights. The worker does **not** implement aggregation.
+
+**Testing without Task 3:** `dispatch.py submit --per-episode-sync --sync-identity-server …` sets `sync_identity_server: true` on the manifest so the worker **copies** the previous checkpoint into the next `to_worker/…` key (echo server). Use only for development.
+
+**Timeouts:** `sync_server_weights_timeout_seconds` (manifest / future CLI) caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
+
+**Parallel EC2 instances:** unchanged — each instance claims a different `job_id` under `jobs/pending/`. Submit one manifest per instance (or run `ops/ec2_workers.py` / your launcher) so many workers pick up different jobs in parallel.
+
+**Stopping the instance after N episodes:** the worker does not count episodes across jobs. After exactly one manifest with `episodes: N` finishes, use  
+`python protocol/worker.py --bucket … --run-once --shutdown-after-job`  
+so the process exits and the AMI attempts `shutdown -h now` (needs passwordless `sudo` or root). Pair with an ASG lifecycle rule or `InstanceInitiatedShutdownBehavior` / spot interruption as appropriate.
+
+---
+
 ## Failure Handling
 
 | Scenario | Worker behaviour | result.json `status` |
@@ -229,5 +259,5 @@ protocol/
   dispatch.py    — submit jobs and check status from a laptop or central server
 
 tests/
-  test_protocol.py — 22 unit tests (no AWS credentials required)
+  test_protocol.py — unit tests (no AWS credentials required)
 ```

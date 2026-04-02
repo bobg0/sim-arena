@@ -144,6 +144,29 @@ def main():
         help="Max wall-clock seconds for the job (default: 3600)",
     )
     sub.add_argument("--job-id", default=None, help="Custom job ID (auto-generated if omitted)")
+    sub.add_argument(
+        "--per-episode-sync",
+        action="store_true",
+        help="After each episode upload checkpoint to S3 and wait for server weights before the next "
+        "(see docs/WORKER_PROTOCOL.md)",
+    )
+    sub.add_argument(
+        "--sync-identity-server",
+        action="store_true",
+        help="With --per-episode-sync: echo worker checkpoint as next weights (no Task 3; testing only)",
+    )
+    sub.add_argument(
+        "--sync-poll-interval",
+        type=int,
+        default=30,
+        help="Seconds between S3 polls while waiting for server weights (default: 30)",
+    )
+    sub.add_argument(
+        "--sync-server-timeout",
+        type=int,
+        default=7200,
+        help="Max seconds to wait for server weights at each episode barrier (default: 7200)",
+    )
 
     # --- list ---
     list_p = subparsers.add_parser("list", help="List all jobs and their status")
@@ -164,6 +187,10 @@ def main():
             target=args.target,
             weights_s3_uri=args.weights,
             timeout_seconds=args.timeout,
+            per_episode_s3_sync=args.per_episode_sync,
+            sync_identity_server=args.sync_identity_server,
+            sync_weights_poll_interval_seconds=args.sync_poll_interval,
+            sync_server_weights_timeout_seconds=args.sync_server_timeout,
         )
         key = submit_job(manifest, args.bucket)
         print(f"Submitted:  {manifest.job_id}")
