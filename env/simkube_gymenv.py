@@ -29,7 +29,7 @@ logger = logging.getLogger("SimKubeEnv")
 class SimKubeEnv(gym.Env):
     """Custom Environment that follows gym interface for SimKube."""
     
-    metadata = {"render_modes": ["console"]}
+    etadata = {"render_modes": ["console"], "render_fps": 1}
 
     def __init__(self, 
                  initial_trace_path: str,
@@ -75,7 +75,10 @@ class SimKubeEnv(gym.Env):
 
         # Observation Space: 5-dimensional continuous state space
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
+            low=0, 
+            high=100, # ONLY SUPPORTING 12 FOR NOW  
+            shape=(5,), 
+            dtype=np.float32
         )
 
     def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict[str, Any]]:
