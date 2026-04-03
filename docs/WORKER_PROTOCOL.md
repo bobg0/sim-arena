@@ -193,6 +193,85 @@ cleanly from the new weights.
 
 ---
 
+<<<<<<< HEAD
+=======
+## Per-episode S3 sync (optional)
+
+Set `per_episode_s3_sync: true` on the manifest (CLI: `dispatch.py submit --per-episode-sync …`)
+when the **central server must refresh weights between every episode** on the same job.
+
+**Worker behaviour**
+
+1. Run `train.py` with `--episodes 1` for each episode (separate subprocess per episode).
+2. After episode `e`, upload the checkpoint to  
+   `results/<job_id>/sync/from_worker/after_ep_XXXX/checkpoint.{pt|json}`  
+   and write `done.json` next to it (`episode_index`, `total_episodes`, `agent`, reward, worker id).
+3. Before episode `e+1` (when `e+1 >= 2`), wait until the server object exists:  
+   `results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json}`  
+   then download it and pass it to `train.py` as `--load … --transfer`.
+4. After the last episode, the worker still writes `checkpoint_final.*`, `train.log`, and `result.json` as in the default layout.
+
+### Included sync server (`sync_server.py`)
+
+The repo ships **`protocol/sync_server.py`**, a small process that **polls S3** and, whenever it sees
+`from_worker/after_ep_XXXX/done.json`, **copies** the matching worker checkpoint to
+`to_worker/before_ep_{XXXX+1}/weights.*` if that key does not exist yet. That is an **identity
+(pass-through)** barrier: it completes the loop so workers do not need `--sync-identity-server`.
+
+Run it anywhere with bucket credentials (laptop, tiny EC2, systemd service):
+
+```bash
+cd ~/work/sim-arena && source .venv/bin/activate
+export JOBS_BUCKET=your-jobs-bucket
+python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 15
+# one-shot (e.g. cron):
+python protocol/sync_server.py --bucket "$JOBS_BUCKET" --once
+```
+
+### Federated learning (shared global weights, **DQN only**)
+
+Use the same **`federation_group_id`** on every worker’s manifest and set **`federation_size`**
+to the number of workers that must finish an episode before the round advances.
+
+- **Dispatch:**  
+  `dispatch.py submit … --federation-group my-run-001 --federation-size 2`  
+  (implies per-episode sync; **agent must be `dqn`**.)
+
+- **Worker uploads** (per episode, per machine):  
+  `results/_federation/<group_id>/from_worker/after_ep_XXXX/<worker_id>/checkpoint.pt`  
+  plus `done.json` (includes `federation_size`, `total_episodes`, `agent`).
+
+- **`sync_server.py`** waits until **`federation_size`** distinct `worker_id`s have uploaded for
+  that group and episode, then runs **FedAvg** (mean of `q_net_state_dict` and
+  `target_net_state_dict`), and writes **one** file for everyone:  
+  `results/_federation/<group_id>/to_worker/before_ep_XXXX/global_weights.pt`
+
+- **Before the next episode**, every worker in the group downloads that **same** object. All
+  machines then continue from the **same averaged** policy.
+
+**Important:** submit **exactly `federation_size` jobs** with the same `--federation-group` and
+`--federation-size`, or workers will block until the barrier fills. If more than
+`federation_size` workers submit for the same episode, the server averages the first
+`federation_size` IDs (sorted lexicographically) — avoid over-submitting.
+
+**Non-federated jobs** (no `federation_group_id`) still use the per-job `results/<job_id>/sync/…`
+layout and identity `copy_object` in `sync_server.py`.
+
+**Testing a single worker without `sync_server.py`:** use `--per-episode-sync --sync-identity-server`
+so the worker copies its own checkpoint into the next `to_worker/…` key. **Do not** use
+`--sync-identity-server` with `--federation-group` (disallowed); use `sync_server.py` for FedAvg.
+
+**Timeouts:** `sync_server_weights_timeout_seconds` on the manifest caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
+
+**Parallel EC2 instances:** unchanged — each instance claims a different `job_id` under `jobs/pending/`. Submit one manifest per instance (or run `ops/ec2_workers.py` / your launcher) so many workers pick up different jobs in parallel.
+
+**Stopping the instance after N episodes:** the worker does not count episodes across jobs. After exactly one manifest with `episodes: N` finishes, use  
+`python protocol/worker.py --bucket … --run-once --shutdown-after-job`  
+so the process exits and the AMI attempts `shutdown -h now` (needs passwordless `sudo` or root). Pair with an ASG lifecycle rule or `InstanceInitiatedShutdownBehavior` / spot interruption as appropriate.
+
+---
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## Failure Handling
 
 | Scenario | Worker behaviour | result.json `status` |
@@ -223,6 +302,7 @@ The worker inherits these from the shell (same as running `train.py` directly):
 
 ```
 protocol/
+<<<<<<< HEAD
   schemas.py     — JobManifest and JobResult dataclasses
   s3_helpers.py  — thin boto3 wrappers (upload, download, list, put/get JSON)
   worker.py      — EC2 worker polling loop
@@ -230,4 +310,18 @@ protocol/
 
 tests/
   test_protocol.py — 22 unit tests (no AWS credentials required)
+=======
+  schemas.py      — JobManifest and JobResult dataclasses
+  s3_helpers.py   — thin boto3 wrappers (upload, download, list, put/get JSON)
+  sync_paths.py   — S3 key helpers for per-episode sync
+  sync_server.py   — polls S3: identity barriers + FedAvg for federation groups
+  federated_avg.py — mean of DQN q_net / target_net checkpoints
+  worker.py        — EC2 worker polling loop
+  dispatch.py      — submit jobs and check status from a laptop or central server
+
+tests/
+  test_protocol.py     — worker/dispatch/schema tests (mocked)
+  test_sync_server.py  — sync server and path tests (mocked)
+  test_federated_avg.py — FedAvg tensor math
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ```

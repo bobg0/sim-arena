@@ -44,6 +44,32 @@ class JobManifest:
     # Max wall-clock seconds the worker allows train.py to run before killing it
     timeout_seconds: int = 3600
 
+<<<<<<< HEAD
+=======
+    # When True: after each episode the worker uploads checkpoint + metrics to S3, then
+    # blocks until the central server (Task 3) writes the next weights under
+    # results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json} before starting
+    # the next episode. See docs/WORKER_PROTOCOL.md § Per-episode S3 sync.
+    per_episode_s3_sync: bool = False
+
+    # Seconds between polls while waiting for server weights (per-episode sync only).
+    sync_weights_poll_interval_seconds: int = 30
+
+    # Max seconds to wait at each barrier for server-provided weights before failing the job.
+    sync_server_weights_timeout_seconds: int = 7200
+
+    # Dev/test: after each episode, copy the worker checkpoint into the next episode's
+    # `to_worker` key (simulates the server echoing weights back without Task 3).
+    sync_identity_server: bool = False
+
+    # Federated learning: all jobs with the same non-empty federation_group_id share one
+    # global model between episodes. Each worker uploads under results/_federation/<group>/...
+    # sync_server.py waits for federation_size submissions, runs FedAvg (DQN .pt only),
+    # then writes global_weights for the next episode. Requires per_episode_s3_sync=True.
+    federation_group_id: Optional[str] = None
+    federation_size: int = 1
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
     created_at: str = field(default_factory=_now_iso)
 
     def to_json(self) -> str:

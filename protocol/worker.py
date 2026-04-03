@@ -21,6 +21,10 @@ import dataclasses
 import json
 import logging
 import os
+<<<<<<< HEAD
+=======
+import shutil
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 import boto3
 import socket
@@ -38,8 +42,28 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from protocol.schemas import JobManifest, JobResult
+<<<<<<< HEAD
 from protocol.s3_helpers import (
     download_file, list_keys, object_exists, put_json, upload_file, s3_uri_to_bucket_key
+=======
+from protocol.sync_paths import (
+    checkpoint_ext,
+    federation_from_ckpt_key,
+    federation_from_done_key,
+    federation_global_weights_key,
+    from_worker_ckpt_key,
+    from_worker_done_key,
+    to_worker_weights_key,
+)
+from protocol.s3_helpers import (
+    copy_object,
+    download_file,
+    list_keys,
+    object_exists,
+    put_json,
+    upload_file,
+    s3_uri_to_bucket_key,
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 )
 from runner.distributed import read_msgpack, write_msgpack
 
@@ -47,10 +71,13 @@ logger = logging.getLogger("worker")
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
+<<<<<<< HEAD
 # Map agent name → checkpoint file extension (mirrors train.py logic)
 _AGENT_EXT = {"dqn": ".pt", "greedy": ".json", "random": ".json"}
 
 
+=======
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -76,7 +103,11 @@ def _worker_id() -> str:
 
 
 def _ext_for_agent(agent: str) -> str:
+<<<<<<< HEAD
     return _AGENT_EXT.get(agent, ".pt")
+=======
+    return checkpoint_ext(agent)
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 
 def _extract_metrics(ckpt_path: Path, agent: str) -> Tuple[int, Optional[float], Optional[float]]:
@@ -217,6 +248,260 @@ def _run_experience_collection_job(manifest: JobManifest, worker_id: str, bucket
         )
 
 
+<<<<<<< HEAD
+=======
+def _wait_for_server_weights(
+    bucket: str,
+    key: str,
+    poll_interval: int,
+    timeout_seconds: float,
+) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if object_exists(bucket, key):
+            return
+        time.sleep(max(1, poll_interval))
+    raise TimeoutError(
+        f"Timed out after {timeout_seconds}s waiting for server weights at s3://{bucket}/{key}"
+    )
+
+
+def _run_training_job_per_episode_sync(
+    manifest: JobManifest,
+    worker_id: str,
+    bucket: str,
+    job_dir: Path,
+    started_at: str,
+    t0: float,
+    ext: str,
+) -> JobResult:
+    """
+    Run N episodes as N separate train.py processes. After each episode, upload checkpoint
+    and metrics; wait for Task 3 to place the next weights under sync/to_worker/, then continue.
+
+    If manifest.federation_group_id is set, uploads go under results/_federation/<group>/...
+    and all workers wait on the same global_weights object (FedAvg produced by sync_server).
+    """
+    combined_log = job_dir / "train.log"
+    episode_rewards: list[float] = []
+    weights_path: Optional[str] = None
+    fed_group = (manifest.federation_group_id or "").strip()
+    use_federation = bool(fed_group)
+    if use_federation and manifest.agent != "dqn":
+        raise ValueError(
+            "federation_group_id is only supported with agent=dqn (FedAvg over .pt checkpoints)"
+        )
+    if use_federation and manifest.federation_size < 1:
+        raise ValueError("federation_size must be >= 1")
+
+    try:
+        if manifest.weights_s3_uri:
+            w_bucket, w_key = s3_uri_to_bucket_key(manifest.weights_s3_uri)
+            w_ext = Path(w_key).suffix or ext
+            weights_path = str(job_dir / f"initial_weights{w_ext}")
+            logger.info(f"Downloading initial weights: {manifest.weights_s3_uri}")
+            download_file(w_bucket, w_key, weights_path)
+
+        env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
+        save_path = job_dir / f"checkpoint_final{ext}"
+
+        for ep in range(1, manifest.episodes + 1):
+            if ep >= 2:
+                if use_federation:
+                    if manifest.sync_identity_server:
+                        raise ValueError(
+                            "sync_identity_server is not supported with federation_group_id; "
+                            "run sync_server.py with FedAvg instead"
+                        )
+                    server_key = federation_global_weights_key(fed_group, ep, ext)
+                    logger.info(
+                        f"Waiting for federated global weights before episode {ep} "
+                        f"(s3://{bucket}/{server_key})"
+                    )
+                    _wait_for_server_weights(
+                        bucket,
+                        server_key,
+                        manifest.sync_weights_poll_interval_seconds,
+                        float(manifest.sync_server_weights_timeout_seconds),
+                    )
+                else:
+                    server_key = to_worker_weights_key(manifest.job_id, ep, ext)
+                    if manifest.sync_identity_server:
+                        src = from_worker_ckpt_key(manifest.job_id, ep - 1, ext)
+                        logger.info(
+                            f"sync_identity_server: copying s3://{bucket}/{src} → "
+                            f"s3://{bucket}/{server_key}"
+                        )
+                        copy_object(bucket, src, server_key)
+                    else:
+                        logger.info(
+                            f"Waiting for server weights before episode {ep} "
+                            f"(s3://{bucket}/{server_key})"
+                        )
+                        _wait_for_server_weights(
+                            bucket,
+                            server_key,
+                            manifest.sync_weights_poll_interval_seconds,
+                            float(manifest.sync_server_weights_timeout_seconds),
+                        )
+                weights_path = str(job_dir / f"server_weights_ep_{ep:04d}{ext}")
+                download_file(bucket, server_key, weights_path)
+
+            round_save = job_dir / f"round_{ep:04d}_save{ext}"
+            round_log = job_dir / f"train_round_{ep:04d}.log"
+
+            cmd = [
+                sys.executable,
+                str(PROJECT_ROOT / "runner" / "train.py"),
+                "--trace", manifest.trace_s3_uri,
+                "--ns", manifest.namespace,
+                "--deploy", manifest.deploy,
+                "--target", str(manifest.target),
+                "--agent", manifest.agent,
+                "--episodes", "1",
+                "--steps", str(manifest.steps),
+                "--duration", str(manifest.duration),
+                "--save", str(round_save),
+                "--log-to-terminal",
+            ]
+            if weights_path:
+                cmd += ["--load", weights_path, "--transfer"]
+
+            logger.info(f"Per-episode sync: running train.py episode round {ep}/{manifest.episodes}")
+            logger.debug("Command: %s", " ".join(cmd))
+
+            with open(round_log, "w") as log_f:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    timeout=manifest.timeout_seconds,
+                    cwd=str(PROJECT_ROOT),
+                    env=env,
+                )
+
+            # Append round log to combined train.log for a single S3 artifact
+            if round_log.exists():
+                with open(combined_log, "a") as out:
+                    out.write(f"\n--- train.py round {ep}/{manifest.episodes} ---\n")
+                    out.write(round_log.read_text())
+
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"train.py exited with code {proc.returncode} (episode round {ep})"
+                )
+
+            if not round_save.exists():
+                raise RuntimeError(f"Missing checkpoint after episode round {ep}: {round_save}")
+
+            if use_federation:
+                ckpt_key = federation_from_ckpt_key(fed_group, ep, worker_id, ext)
+            else:
+                ckpt_key = from_worker_ckpt_key(manifest.job_id, ep, ext)
+            upload_file(str(round_save), bucket, ckpt_key)
+
+            e_done, _, ep_final = _extract_metrics(round_save, manifest.agent)
+            if ep_final is not None:
+                episode_rewards.append(float(ep_final))
+
+            done_payload = {
+                "job_id": manifest.job_id,
+                "worker_id": worker_id,
+                "agent": manifest.agent,
+                "total_episodes": manifest.episodes,
+                "episode_index": ep,
+                "episodes_completed_in_checkpoint": e_done,
+                "episode_reward": ep_final,
+                "checkpoint_s3_uri": f"s3://{bucket}/{ckpt_key}",
+            }
+            if use_federation:
+                done_payload["federation_group_id"] = fed_group
+                done_payload["federation_size"] = manifest.federation_size
+
+            if use_federation:
+                done_key = federation_from_done_key(fed_group, ep, worker_id)
+            else:
+                done_key = from_worker_done_key(manifest.job_id, ep)
+            put_json(bucket, done_key, done_payload)
+
+            # Final artifact for the classic protocol layout
+            shutil.copy2(round_save, save_path)
+
+        result_prefix = f"results/{manifest.job_id}"
+        checkpoint_s3_uri: Optional[str] = None
+        log_s3_uri: Optional[str] = None
+
+        if save_path.exists():
+            ckpt_key = f"{result_prefix}/checkpoint_final{ext}"
+            upload_file(str(save_path), bucket, ckpt_key)
+            checkpoint_s3_uri = f"s3://{bucket}/{ckpt_key}"
+
+        if combined_log.exists():
+            log_key = f"{result_prefix}/train.log"
+            upload_file(str(combined_log), bucket, log_key)
+            log_s3_uri = f"s3://{bucket}/{log_key}"
+
+        total_reward = round(sum(episode_rewards), 4) if episode_rewards else None
+        final_reward = round(episode_rewards[-1], 4) if episode_rewards else None
+
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="success",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            episodes_completed=len(episode_rewards),
+            total_reward=total_reward,
+            final_reward=final_reward,
+            checkpoint_s3_uri=checkpoint_s3_uri,
+            log_s3_uri=log_s3_uri,
+        )
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Job {manifest.job_id} timed out during per-episode sync")
+        log_uri = _try_upload_train_log(bucket, manifest.job_id, combined_log)
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="timeout",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            error=f"Timed out after {manifest.timeout_seconds}s (per-episode sync)",
+            log_s3_uri=log_uri,
+        )
+    except Exception as e:
+        logger.exception(f"Job {manifest.job_id} failed (per-episode sync): {e}")
+        log_uri = _try_upload_train_log(bucket, manifest.job_id, combined_log)
+        return JobResult(
+            job_id=manifest.job_id,
+            worker_id=worker_id,
+            status="failed",
+            started_at=started_at,
+            finished_at=_now_iso(),
+            elapsed_seconds=round(time.time() - t0, 1),
+            error=str(e),
+            log_s3_uri=log_uri,
+        )
+
+
+def _try_upload_train_log(bucket: str, job_id: str, log_path: Path) -> Optional[str]:
+    """On failed runs, still upload train.log so S3 has the real error (SimKube, S3, etc.)."""
+    if not log_path.exists():
+        return None
+    try:
+        key = f"results/{job_id}/train.log"
+        upload_file(str(log_path), bucket, key)
+        uri = f"s3://{bucket}/{key}"
+        logger.info(f"Uploaded train.log (failed run) → {uri}")
+        return uri
+    except Exception as ex:
+        logger.warning(f"Could not upload train.log: {ex}")
+        return None
+
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
     """
     Execute one job:
@@ -239,6 +524,14 @@ def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
         return _run_experience_collection_job(manifest, worker_id, bucket, job_dir, started_at, t0)
 
     ext = _ext_for_agent(manifest.agent)
+<<<<<<< HEAD
+=======
+    if manifest.per_episode_s3_sync:
+        return _run_training_job_per_episode_sync(
+            manifest, worker_id, bucket, job_dir, started_at, t0, ext
+        )
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
     save_path = job_dir / f"checkpoint_final{ext}"
     log_path = job_dir / "train.log"
 
@@ -328,6 +621,10 @@ def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
 
     except subprocess.TimeoutExpired:
         logger.error(f"Job {manifest.job_id} timed out after {manifest.timeout_seconds}s")
+<<<<<<< HEAD
+=======
+        log_uri = _try_upload_train_log(bucket, manifest.job_id, log_path)
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         return JobResult(
             job_id=manifest.job_id,
             worker_id=worker_id,
@@ -336,10 +633,18 @@ def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
             finished_at=_now_iso(),
             elapsed_seconds=round(time.time() - t0, 1),
             error=f"Timed out after {manifest.timeout_seconds}s",
+<<<<<<< HEAD
+=======
+            log_s3_uri=log_uri,
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         )
 
     except Exception as e:
         logger.exception(f"Job {manifest.job_id} failed: {e}")
+<<<<<<< HEAD
+=======
+        log_uri = _try_upload_train_log(bucket, manifest.job_id, log_path)
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         return JobResult(
             job_id=manifest.job_id,
             worker_id=worker_id,
@@ -348,14 +653,47 @@ def run_job(manifest: JobManifest, worker_id: str, bucket: str) -> JobResult:
             finished_at=_now_iso(),
             elapsed_seconds=round(time.time() - t0, 1),
             error=str(e),
+<<<<<<< HEAD
         )
 
 
+=======
+            log_s3_uri=log_uri,
+        )
+
+
+def _shutdown_host_after_successful_job() -> None:
+    """
+    Best-effort host shutdown after a successful job (typically with --run-once).
+    Requires passwordless sudo or root on the AMI; otherwise this is a no-op aside from a log line.
+    """
+    logger.warning(
+        "shutdown-after-job: requesting system halt (instance may terminate if cloud-init/ASG is configured)"
+    )
+    for cmd in (
+        ["sudo", "-n", "/usr/sbin/shutdown", "-h", "now"],
+        ["sudo", "-n", "shutdown", "-h", "now"],
+        ["/usr/sbin/shutdown", "-h", "now"],
+        ["shutdown", "-h", "now"],
+    ):
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except OSError:
+            continue
+    logger.warning("shutdown-after-job: could not launch shutdown command (no sudo/root?)")
+
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 def poll_and_run(
     bucket: str,
     worker_id: str,
     poll_interval: int = 30,
     run_once: bool = False,
+<<<<<<< HEAD
+=======
+    shutdown_after_job: bool = False,
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ) -> None:
     """
     Main loop: scan S3 for pending jobs, claim one, run it, write the result.
@@ -414,6 +752,11 @@ def poll_and_run(
 
             ran_something = True
             if run_once:
+<<<<<<< HEAD
+=======
+                if shutdown_after_job and result.status == "success":
+                    _shutdown_host_after_successful_job()
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
                 return
 
         if not ran_something:
@@ -460,6 +803,14 @@ def main():
         help="Process one job then exit — useful for testing",
     )
     parser.add_argument(
+<<<<<<< HEAD
+=======
+        "--shutdown-after-job",
+        action="store_true",
+        help="After a successful job with --run-once, attempt `shutdown -h now` (needs sudo/root on AMI)",
+    )
+    parser.add_argument(
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -473,7 +824,17 @@ def main():
     )
 
     worker_id = args.worker_id or _worker_id()
+<<<<<<< HEAD
     poll_and_run(args.bucket, worker_id, args.poll_interval, args.run_once)
+=======
+    poll_and_run(
+        args.bucket,
+        worker_id,
+        args.poll_interval,
+        args.run_once,
+        shutdown_after_job=args.shutdown_after_job,
+    )
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 
 if __name__ == "__main__":

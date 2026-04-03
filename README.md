@@ -1,9 +1,23 @@
 # Sim-Arena
 
+<<<<<<< HEAD
+=======
+**Canonical README** for this codebase inside the [`clinic_ACRL`](../README.md) monorepo — use this file for setup, training, benchmarks, and operations.
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 > **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy. Now also supports **LLM benchmarking** — Gemini and Claude models can be evaluated on the same scenarios using live Kubernetes tool access via MCP.
 
 ---
 
+<<<<<<< HEAD
+=======
+## Repository context (`clinic_ACRL`)
+
+This folder is part of the **`clinic_ACRL`** monorepo (sibling trees: `simkube/`, `isengard/`, optional `sim-arena-backup/`). For a **single document** that explains the whole workspace, distributed jobs, EC2, and what is still stubbed, read **[`../PROJECT_OUTLINE_CHATGPT.md`](../PROJECT_OUTLINE_CHATGPT.md)** from the repo root.
+
+---
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## Table of Contents
 
 1. [What This System Does](#what-this-system-does)
@@ -15,7 +29,12 @@
 7. [Key Concepts](#key-concepts)
 8. [How to Use](#how-to-use)
 9. [LLM Benchmarking](#llm-benchmarking)
+<<<<<<< HEAD
 10. [For Future Development](#for-future-development)
+=======
+10. [Distributed training (S3 workers and EC2)](#distributed-training-s3-workers-and-ec2)
+11. [For Future Development](#for-future-development)
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 ---
 
@@ -499,6 +518,24 @@ The response is parsed by `agent/action_parser.py` with three fallback strategie
 
 ---
 
+<<<<<<< HEAD
+=======
+## Distributed training (S3 workers and EC2)
+
+For scaling beyond a single machine, jobs are defined as **manifests in S3**; **EC2 workers** poll the bucket, run `runner/train.py`, and upload **checkpoints**, **logs**, and **`result.json`**.
+
+| Topic | Location |
+|-------|----------|
+| Protocol (manifests, results, CLI) | [`docs/WORKER_PROTOCOL.md`](docs/WORKER_PROTOCOL.md), `protocol/` (run `sync_server.py` with `--per-episode-sync` jobs) |
+| Launch many EC2 workers + inventory JSON | [`docs/EC2_MULTI_WORKER_RUNBOOK.md`](docs/EC2_MULTI_WORKER_RUNBOOK.md), `ops/ec2_workers.py` |
+| Single-instance AMI / S3 secret setup | [`docs/EC2_SETUP_FROM_SCRATCH.md`](docs/EC2_SETUP_FROM_SCRATCH.md) |
+| Roadmap (tasks 1–3) | [`docs/NEXT_TASKS.md`](docs/NEXT_TASKS.md) |
+
+**Note:** [`TRAINING_SERVER_README.md`](TRAINING_SERVER_README.md) describes a Flask “central server” that is **not present as `training_server.py` in this repo** — treat it as design unless you add that service. **`runner/dist_run.py`** is currently a **stub**; `job_type=experience_collection` is not end-to-end until that runner is implemented (see [`PROJECT_OUTLINE_CHATGPT.md`](../PROJECT_OUTLINE_CHATGPT.md) §7).
+
+---
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## For Future Development
 
 ### Adding a New RL Agent
@@ -555,6 +592,13 @@ Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `d
 | Simulation management | `env/sim_env.py` |
 | Resource safeguards | `runner/safeguards.py` |
 | Cluster health checks | `ops/preflight.py` |
+<<<<<<< HEAD
+=======
+| S3 job dispatch (submit/list) | `protocol/dispatch.py` |
+| EC2 worker polling loop | `protocol/worker.py` |
+| Per-episode S3 barrier + optional FedAvg across workers | `protocol/sync_server.py`, `protocol/federated_avg.py` |
+| EC2 fleet launch / terminate | `ops/ec2_workers.py` |
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 ### Data Flow
 

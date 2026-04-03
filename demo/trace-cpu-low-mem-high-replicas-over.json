@@ -1,0 +1,72 @@
+{
+  "version": 2,
+  "config": {
+    "trackedObjects": {
+      "apps/v1.Deployment": {
+        "podSpecTemplatePath": "/spec/template"
+      }
+    }
+  },
+  "pod_lifecycles": {},
+  "index": {},
+  "metadata": {
+    "description": "Composite: 5 replicas with 250m CPU and 33Gi memory each (underprovisioned CPU, memory over node capacity, replicas over target)",
+    "scenario": {
+      "failure_mode": "cpu_low_memory_high_replicas_over",
+      "severity": "composite",
+      "derived_from": {
+        "cpu": "trace-scaling-v2 (250m CPU baseline)",
+        "memory": "trace-mem-slight (33Gi memory)",
+        "replicas": "trace-replicas-over (5 replicas)"
+      },
+      "initial_state": "5 pods, 250m CPU each, 33Gi memory each; replicas exceed target and memory exceeds the 32Gi/node virtual-node limit",
+      "target": "3 pods ready",
+      "expected_behavior": "Agent should bump CPU, reduce memory, and scale_down_replicas to 3"
+    }
+  },
+  "events": [
+    {
+      "ts": 1730390400,
+      "deleted_objs": [],
+      "applied_objs": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "web",
+            "namespace": "default"
+          },
+          "spec": {
+            "selector": {
+              "matchLabels": {
+                "app": "web"
+              }
+            },
+            "replicas": 5,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "web"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "web",
+                    "image": "ghcr.io/example/web:1.0",
+                    "resources": {
+                      "requests": {
+                        "cpu": "250m",
+                        "memory": "33Gi"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

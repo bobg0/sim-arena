@@ -15,6 +15,10 @@ import dataclasses
 import json
 import os
 import sys
+<<<<<<< HEAD
+=======
+import shutil
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -27,7 +31,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import s3_uri_to_bucket_key
+<<<<<<< HEAD
 from protocol.worker import _ext_for_agent, _extract_metrics, run_job
+=======
+from protocol.worker import (
+    _ext_for_agent,
+    _extract_metrics,
+    _wait_for_server_weights,
+    run_job,
+)
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 from protocol.dispatch import submit_job, list_jobs
 
 
@@ -73,6 +86,48 @@ class TestJobManifest:
         restored = JobManifest.from_json(m.to_json())
         assert restored.weights_s3_uri == "s3://b/results/j0/checkpoint_final.pt"
 
+<<<<<<< HEAD
+=======
+    def test_per_episode_sync_defaults(self):
+        m = JobManifest(job_id="j4", trace_s3_uri="s3://b/t.msgpack")
+        assert m.per_episode_s3_sync is False
+        assert m.sync_identity_server is False
+        assert m.sync_weights_poll_interval_seconds == 30
+        assert m.sync_server_weights_timeout_seconds == 7200
+
+    def test_per_episode_sync_roundtrip_json(self):
+        m = JobManifest(
+            job_id="j5",
+            trace_s3_uri="s3://b/t.msgpack",
+            per_episode_s3_sync=True,
+            sync_identity_server=True,
+            sync_weights_poll_interval_seconds=5,
+            sync_server_weights_timeout_seconds=60,
+        )
+        r = JobManifest.from_json(m.to_json())
+        assert r.per_episode_s3_sync is True
+        assert r.sync_identity_server is True
+        assert r.sync_weights_poll_interval_seconds == 5
+        assert r.sync_server_weights_timeout_seconds == 60
+
+    def test_federation_fields_default(self):
+        m = JobManifest(job_id="jf", trace_s3_uri="s3://b/t.msgpack")
+        assert m.federation_group_id is None
+        assert m.federation_size == 1
+
+    def test_federation_roundtrip_json(self):
+        m = JobManifest(
+            job_id="jf2",
+            trace_s3_uri="s3://b/t.msgpack",
+            per_episode_s3_sync=True,
+            federation_group_id="run-2026-04-03",
+            federation_size=4,
+        )
+        r = JobManifest.from_json(m.to_json())
+        assert r.federation_group_id == "run-2026-04-03"
+        assert r.federation_size == 4
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 class TestJobResult:
     def _make(self, **kwargs):
@@ -126,6 +181,22 @@ class TestS3Helpers:
         with pytest.raises(ValueError):
             s3_uri_to_bucket_key("https://example.com/file")
 
+<<<<<<< HEAD
+=======
+    @patch("protocol.s3_helpers._client")
+    def test_copy_object_calls_s3(self, mock_client_factory):
+        mock_client = MagicMock()
+        mock_client_factory.return_value = mock_client
+        from protocol.s3_helpers import copy_object
+
+        copy_object("my-bucket", "src/key.pt", "dst/key.pt")
+        mock_client.copy_object.assert_called_once()
+        call_kw = mock_client.copy_object.call_args.kwargs
+        assert call_kw["Bucket"] == "my-bucket"
+        assert call_kw["Key"] == "dst/key.pt"
+        assert call_kw["CopySource"] == {"Bucket": "my-bucket", "Key": "src/key.pt"}
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 # ---------------------------------------------------------------------------
 # worker helper tests
@@ -271,6 +342,95 @@ class TestRunJob:
         assert result.status == "timeout"
         assert "Timed out" in result.error
 
+<<<<<<< HEAD
+=======
+    @patch("protocol.worker.put_json")
+    @patch("protocol.worker.copy_object")
+    @patch("protocol.worker.download_file")
+    @patch("protocol.worker.upload_file")
+    @patch("subprocess.run")
+    def test_per_episode_sync_identity_two_episodes(
+        self, mock_subproc, mock_upload, mock_download, mock_copy, mock_put
+    ):
+        """sync_identity_server echoes checkpoint; two train.py runs with --episodes 1."""
+        tmp = Path(tempfile.mkdtemp())
+        s3_shadow: dict[str, Path] = {}
+
+        try:
+
+            def upload_side(local_path: str, bucket: str, key: str):
+                dest = tmp / key.replace("/", "__")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(local_path, dest)
+                s3_shadow[key] = dest
+
+            def download_side(bucket: str, key: str, local_path: str):
+                Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s3_shadow[key], local_path)
+
+            def copy_side(bucket: str, src_key: str, dst_key: str):
+                dest = tmp / dst_key.replace("/", "__")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s3_shadow[src_key], dest)
+                s3_shadow[dst_key] = dest
+
+            def download_side(bucket: str, key: str, local_path: str):
+                Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s3_shadow[key], local_path)
+
+            mock_upload.side_effect = upload_side
+            mock_download.side_effect = download_side
+            mock_copy.side_effect = copy_side
+
+            n_calls = [0]
+
+            def subproc_side_effect(cmd, **kwargs):
+                if "--save" in cmd:
+                    idx = cmd.index("--save")
+                    save_path = Path(cmd[idx + 1])
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    n_calls[0] += 1
+                    save_path.write_text(
+                        json.dumps({"episode_reward_history": [float(n_calls[0])]})
+                    )
+                result = MagicMock()
+                result.returncode = 0
+                return result
+
+            mock_subproc.side_effect = subproc_side_effect
+
+            manifest = JobManifest(
+                job_id="sync_job_01",
+                trace_s3_uri="s3://traces/demo/t.msgpack",
+                agent="greedy",
+                episodes=2,
+                steps=3,
+                duration=5,
+                timeout_seconds=300,
+                per_episode_s3_sync=True,
+                sync_identity_server=True,
+            )
+            result = run_job(manifest, "worker-sync", "test-bucket")
+
+            assert result.status == "success"
+            assert result.episodes_completed == 2
+            assert result.total_reward == pytest.approx(3.0)
+            assert result.final_reward == pytest.approx(2.0)
+            assert mock_subproc.call_count == 2
+            cmds = [c[0][0] for c in mock_subproc.call_args_list]
+            for cmd in cmds:
+                assert cmd[cmd.index("--episodes") + 1] == "1"
+            assert mock_copy.call_count == 1
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @patch("protocol.worker.object_exists", return_value=False)
+    @patch("protocol.worker.time.sleep", return_value=None)
+    def test_wait_for_server_weights_timeout(self, _mock_sleep, _mock_exists):
+        with pytest.raises(TimeoutError, match="Timed out"):
+            _wait_for_server_weights("b", "k", poll_interval=1, timeout_seconds=0.01)
+
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 # ---------------------------------------------------------------------------
 # dispatch tests

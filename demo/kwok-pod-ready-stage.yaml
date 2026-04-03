@@ -1,0 +1,38 @@
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: sim-arena-pod-ready
+spec:
+  immediateNextStage: true
+  resourceRef:
+    apiGroup: v1
+    kind: Pod
+  selector:
+    matchLabels:
+      app: web
+    matchExpressions:
+    - key: .metadata.namespace
+      operator: In
+      values:
+      - virtual-default
+    - key: .status.conditions.[] | select( .type == "PodScheduled" ) | .status
+      operator: In
+      values:
+      - "True"
+  next:
+    event:
+      type: Normal
+      reason: KwokPodReady
+      message: KWOK marked the pod ready
+    patches:
+    - subresource: status
+      type: merge
+      template: |
+        status:
+          phase: Running
+          conditions:
+          - lastTransitionTime: {{ Now | Quote }}
+            message: Pod is ready
+            reason: KwokPodReady
+            status: "True"
+            type: Ready

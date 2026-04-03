@@ -264,6 +264,12 @@ class SimKubeEnv(gym.Env):
             distance / 5.0,
             min(1.0, replicas / 8.0),
         ]
+    
+    def render(self):
+        """Renders the environment to the console."""
+        if self.render_mode == "console":
+            # Just print the current step and active trace path
+            print(f"Step: {self.current_step} | Active Trace: {self.current_trace_path}")
 
     def _generate_id(self):
         """Generates a deterministic ID based on the environment's random seed."""

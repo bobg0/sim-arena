@@ -144,6 +144,44 @@ def main():
         help="Max wall-clock seconds for the job (default: 3600)",
     )
     sub.add_argument("--job-id", default=None, help="Custom job ID (auto-generated if omitted)")
+<<<<<<< HEAD
+=======
+    sub.add_argument(
+        "--per-episode-sync",
+        action="store_true",
+        help="After each episode upload checkpoint to S3 and wait for server weights before the next "
+        "(see docs/WORKER_PROTOCOL.md)",
+    )
+    sub.add_argument(
+        "--sync-identity-server",
+        action="store_true",
+        help="With --per-episode-sync: echo worker checkpoint as next weights (no Task 3; testing only)",
+    )
+    sub.add_argument(
+        "--sync-poll-interval",
+        type=int,
+        default=30,
+        help="Seconds between S3 polls while waiting for server weights (default: 30)",
+    )
+    sub.add_argument(
+        "--sync-server-timeout",
+        type=int,
+        default=7200,
+        help="Max seconds to wait for server weights at each episode barrier (default: 7200)",
+    )
+    sub.add_argument(
+        "--federation-group",
+        default=None,
+        metavar="GROUP_ID",
+        help="Shared group ID for FedAvg across workers (implies per-episode sync; agent must be dqn)",
+    )
+    sub.add_argument(
+        "--federation-size",
+        type=int,
+        default=1,
+        help="Workers that must finish an episode before sync_server publishes global weights (default: 1)",
+    )
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
     # --- list ---
     list_p = subparsers.add_parser("list", help="List all jobs and their status")
@@ -152,6 +190,14 @@ def main():
     args = parser.parse_args()
 
     if args.command == "submit":
+<<<<<<< HEAD
+=======
+        fed_g = (args.federation_group or "").strip() or None
+        per_ep = args.per_episode_sync or bool(fed_g)
+        fed_size = max(1, int(args.federation_size)) if fed_g else 1
+        if fed_g and args.agent != "dqn":
+            parser.error("--federation-group requires --agent dqn (FedAvg on .pt checkpoints)")
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         manifest = JobManifest(
             job_id=args.job_id or _job_id(),
             trace_s3_uri=args.trace,
@@ -164,6 +210,15 @@ def main():
             target=args.target,
             weights_s3_uri=args.weights,
             timeout_seconds=args.timeout,
+<<<<<<< HEAD
+=======
+            per_episode_s3_sync=per_ep,
+            sync_identity_server=args.sync_identity_server,
+            sync_weights_poll_interval_seconds=args.sync_poll_interval,
+            sync_server_weights_timeout_seconds=args.sync_server_timeout,
+            federation_group_id=fed_g,
+            federation_size=fed_size,
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
         )
         key = submit_job(manifest, args.bucket)
         print(f"Submitted:  {manifest.job_id}")
@@ -172,6 +227,11 @@ def main():
         if manifest.weights_s3_uri:
             print(f"Weights:    {manifest.weights_s3_uri}")
         print(f"Agent:      {manifest.agent}  |  episodes={manifest.episodes}  steps={manifest.steps}")
+<<<<<<< HEAD
+=======
+        if fed_g:
+            print(f"Federation: group={fed_g}  federation_size={fed_size}  (run sync_server.py)")
+>>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
     elif args.command == "list":
         list_jobs(args.bucket)
