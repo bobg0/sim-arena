@@ -2,7 +2,7 @@
 """Generate named test traces for the sim-arena training environment.
 
 SimKube schedules pods on KWOK virtual nodes (type=virtual), each with 16 CPU, 32Gi.
-Six scenario types for diverse training (agent randomly gets one per episode):
+Seven scenario types for diverse training (agent randomly gets one per episode):
 
   trace-cpu-slight   -- CPU over: 3 x 17000m (reduce_cpu)
   trace-cpu-heavy    -- CPU far over: 3 x 20000m (reduce_cpu)
@@ -10,6 +10,7 @@ Six scenario types for diverse training (agent randomly gets one per episode):
   trace-mem-heavy    -- Memory far over: 3 x 40Gi (exceeds 32Gi/node -> pending)
   trace-cpu-mem      -- Both over: 3 x 17000m + 33Gi (reduce both)
   trace-replicas-over -- Too many replicas: 5 x 500m (scale_down to 3)
+  trace-cpu-low-mem-high-replicas-over -- Composite: low CPU + high memory + too many replicas
 
 Usage:
   PYTHONPATH=. python demo/generate_traces.py
@@ -167,6 +168,32 @@ TRACES = {
             "initial_state": "5 pods (all schedule), target is 3",
             "target": "3 pods ready",
             "expected_behavior": "Agent should scale_down_replicas to 3",
+        },
+    ),
+    "trace-cpu-low-mem-high-replicas-over": _make_trace(
+        cpu_per_pod="250m",
+        memory_per_pod="33Gi",
+        replicas=5,
+        description=(
+            "Composite: 5 replicas with 250m CPU and 33Gi memory each "
+            "(underprovisioned CPU, memory over node capacity, replicas over target)"
+        ),
+        scenario={
+            "failure_mode": "cpu_low_memory_high_replicas_over",
+            "severity": "composite",
+            "derived_from": {
+                "cpu": "trace-scaling-v2 (250m CPU baseline)",
+                "memory": "trace-mem-slight (33Gi memory)",
+                "replicas": "trace-replicas-over (5 replicas)",
+            },
+            "initial_state": (
+                "5 pods, 250m CPU each, 33Gi memory each; replicas exceed target and "
+                "memory exceeds the 32Gi/node virtual-node limit"
+            ),
+            "target": "3 pods ready",
+            "expected_behavior": (
+                "Agent should bump CPU, reduce memory, and scale_down_replicas to 3"
+            ),
         },
     ),
 }
