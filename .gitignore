@@ -218,3 +218,9 @@ benchmark/results
 
 # Worker protocol — local job working directories (temp files, not for repo)
 .jobs/
+
+# Local key material
+id_rsa
+id_rsa.pub
+*.pem
+*.key
