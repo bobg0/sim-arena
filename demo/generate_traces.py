@@ -2,11 +2,7 @@
 """Generate named test traces for the sim-arena training environment.
 
 SimKube schedules pods on KWOK virtual nodes (type=virtual), each with 16 CPU, 32Gi.
-<<<<<<< HEAD
-Six scenario types for diverse training (agent randomly gets one per episode):
-=======
 Seven scenario types for diverse training (agent randomly gets one per episode):
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
   trace-cpu-slight   -- CPU over: 3 x 17000m (reduce_cpu)
   trace-cpu-heavy    -- CPU far over: 3 x 20000m (reduce_cpu)
@@ -14,10 +10,7 @@ Seven scenario types for diverse training (agent randomly gets one per episode):
   trace-mem-heavy    -- Memory far over: 3 x 40Gi (exceeds 32Gi/node -> pending)
   trace-cpu-mem      -- Both over: 3 x 17000m + 33Gi (reduce both)
   trace-replicas-over -- Too many replicas: 5 x 500m (scale_down to 3)
-<<<<<<< HEAD
-=======
   trace-cpu-low-mem-high-replicas-over -- Composite: low CPU + high memory + too many replicas
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 Usage:
   PYTHONPATH=. python demo/generate_traces.py
@@ -177,8 +170,6 @@ TRACES = {
             "expected_behavior": "Agent should scale_down_replicas to 3",
         },
     ),
-<<<<<<< HEAD
-=======
     "trace-cpu-low-mem-high-replicas-over": _make_trace(
         cpu_per_pod="250m",
         memory_per_pod="33Gi",
@@ -205,7 +196,6 @@ TRACES = {
             ),
         },
     ),
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 }
 
 

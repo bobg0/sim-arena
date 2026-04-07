@@ -52,8 +52,6 @@ def delete_object(bucket: str, key: str) -> None:
     _client().delete_object(Bucket=bucket, Key=key)
 
 
-<<<<<<< HEAD
-=======
 def copy_object(bucket: str, src_key: str, dst_key: str) -> None:
     """Server-side copy within the same bucket (used for sync_identity_server tests)."""
     _client().copy_object(
@@ -63,7 +61,6 @@ def copy_object(bucket: str, src_key: str, dst_key: str) -> None:
     )
 
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 def s3_uri_to_bucket_key(uri: str):
     """Parse 's3://bucket/some/key' → ('bucket', 'some/key')."""
     if not uri.startswith("s3://"):

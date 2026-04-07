@@ -15,10 +15,7 @@ import dataclasses
 import json
 import os
 import sys
-<<<<<<< HEAD
-=======
 import shutil
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -31,16 +28,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from protocol.schemas import JobManifest, JobResult
 from protocol.s3_helpers import s3_uri_to_bucket_key
-<<<<<<< HEAD
-from protocol.worker import _ext_for_agent, _extract_metrics, run_job
-=======
 from protocol.worker import (
     _ext_for_agent,
     _extract_metrics,
     _wait_for_server_weights,
     run_job,
 )
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 from protocol.dispatch import submit_job, list_jobs
 
 
@@ -86,8 +79,6 @@ class TestJobManifest:
         restored = JobManifest.from_json(m.to_json())
         assert restored.weights_s3_uri == "s3://b/results/j0/checkpoint_final.pt"
 
-<<<<<<< HEAD
-=======
     def test_per_episode_sync_defaults(self):
         m = JobManifest(job_id="j4", trace_s3_uri="s3://b/t.msgpack")
         assert m.per_episode_s3_sync is False
@@ -127,7 +118,6 @@ class TestJobManifest:
         assert r.federation_group_id == "run-2026-04-03"
         assert r.federation_size == 4
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 class TestJobResult:
     def _make(self, **kwargs):
@@ -181,8 +171,6 @@ class TestS3Helpers:
         with pytest.raises(ValueError):
             s3_uri_to_bucket_key("https://example.com/file")
 
-<<<<<<< HEAD
-=======
     @patch("protocol.s3_helpers._client")
     def test_copy_object_calls_s3(self, mock_client_factory):
         mock_client = MagicMock()
@@ -196,7 +184,6 @@ class TestS3Helpers:
         assert call_kw["Key"] == "dst/key.pt"
         assert call_kw["CopySource"] == {"Bucket": "my-bucket", "Key": "src/key.pt"}
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 # ---------------------------------------------------------------------------
 # worker helper tests
@@ -342,8 +329,6 @@ class TestRunJob:
         assert result.status == "timeout"
         assert "Timed out" in result.error
 
-<<<<<<< HEAD
-=======
     @patch("protocol.worker.put_json")
     @patch("protocol.worker.copy_object")
     @patch("protocol.worker.download_file")
@@ -430,7 +415,6 @@ class TestRunJob:
         with pytest.raises(TimeoutError, match="Timed out"):
             _wait_for_server_weights("b", "k", poll_interval=1, timeout_seconds=0.01)
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 # ---------------------------------------------------------------------------
 # dispatch tests
