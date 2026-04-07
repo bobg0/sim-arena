@@ -44,8 +44,6 @@ class JobManifest:
     # Max wall-clock seconds the worker allows train.py to run before killing it
     timeout_seconds: int = 3600
 
-<<<<<<< HEAD
-=======
     # When True: after each episode the worker uploads checkpoint + metrics to S3, then
     # blocks until the central server (Task 3) writes the next weights under
     # results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json} before starting
@@ -69,7 +67,6 @@ class JobManifest:
     federation_group_id: Optional[str] = None
     federation_size: int = 1
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
     created_at: str = field(default_factory=_now_iso)
 
     def to_json(self) -> str:
