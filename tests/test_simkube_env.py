@@ -1,9 +1,10 @@
 import pytest
-import gymnasium as gym
-from gymnasium.utils.env_checker import check_env
+
+gym = pytest.importorskip("gymnasium", reason="gymnasium not installed; skipping SimKube env compliance test")
+check_env = pytest.importorskip("gymnasium.utils.env_checker", reason="gymnasium not installed").check_env
 
 # Importing your env module triggers the Gym registration
-import env 
+import env
 
 def test_simkube_env_compliance():
     """

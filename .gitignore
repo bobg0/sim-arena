@@ -218,12 +218,9 @@ benchmark/results
 
 # Worker protocol — local job working directories (temp files, not for repo)
 .jobs/
-<<<<<<< HEAD
-=======
 
-# Local key material
+# Local key material — never commit private keys
 id_rsa
 id_rsa.pub
 *.pem
 *.key
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d

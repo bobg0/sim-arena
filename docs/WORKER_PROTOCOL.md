@@ -1,14 +1,13 @@
 # Worker Communication Protocol
 
-This document describes how the central server (Task 3) sends jobs to EC2 workers
-and how workers return results.  Everything goes through S3 — no message queues needed.
+This document describes how jobs are dispatched to EC2 workers and how workers return results. Everything goes through S3 — no message queues needed.
 
 ---
 
 ## Overview
 
 ```
-Central server (or operator)          EC2 worker
+Operator (laptop or server)           EC2 worker
         │                                  │
         │  1. write manifest.json to S3    │
         │ ────────────────────────────────►│
@@ -23,25 +22,44 @@ Central server (or operator)          EC2 worker
         │   to get new weights)            │
 ```
 
+For federated runs, a **`sync_server.py`** process (running on any machine with S3 access) sits between workers and handles weight aggregation:
+
+```
+Worker 1 ──► upload ep1 checkpoint ──► S3
+Worker 2 ──► upload ep1 checkpoint ──► S3
+                                         │
+                                   sync_server.py
+                                   (FedAvg → global_weights.pt)
+                                         │
+Worker 1 ◄── download global_weights ───┘
+Worker 2 ◄── download global_weights ───┘
+  (both continue with ep2 from shared averaged policy)
+```
+
 ---
 
 ## S3 Bucket Layout
 
-All objects live in one bucket (default: **`diya-simarena-jobs`**).
+All objects live in one bucket (e.g. **`diya-simarena-jobs-664926621123-us-east-2-an`**).
 
 ```
 jobs/
-  pending/<job_id>/manifest.json     ← dispatcher writes here
-  in_progress/<job_id>/claimed_by    ← worker writes while running (claim marker)
+  pending/<job_id>/manifest.json      ← dispatcher writes here
+  in_progress/<job_id>/claimed_by     ← worker writes while running (claim marker)
 
 results/
-  <job_id>/result.json               ← worker writes when done
-  <job_id>/checkpoint_final.pt       ← trained weights (DQN)
-  <job_id>/checkpoint_final.json     ← trained weights (greedy/random)
-  <job_id>/train.log                 ← full stdout from train.py
+  <job_id>/result.json                ← worker writes when done
+  <job_id>/checkpoint_final.pt        ← trained weights (DQN)
+  <job_id>/checkpoint_final.json      ← trained weights (greedy/random)
+  <job_id>/train.log                  ← full stdout from train.py
+
+  _federation/<group_id>/
+    from_worker/after_ep_XXXX/<worker_id>/checkpoint.pt   ← per-worker upload
+    from_worker/after_ep_XXXX/<worker_id>/done.json
+    to_worker/before_ep_XXXX/global_weights.pt            ← FedAvg output
 ```
 
-Traces remain in the **existing** bucket: `s3://diya-simarena-traces/`.
+Traces remain in the separate bucket: `s3://diya-simarena-traces/`.
 
 ---
 
@@ -54,14 +72,17 @@ Written by the dispatcher; read by the worker.
   "job_id":           "job_20260325_120000_a1b2c3",
   "trace_s3_uri":     "s3://diya-simarena-traces/demo/trace-mem-slight.msgpack",
   "agent":            "dqn",
-  "episodes":         10,
-  "steps":            20,
+  "episodes":         2,
+  "steps":            3,
   "duration":         40,
   "namespace":        "default",
   "deploy":           "web",
   "target":           3,
   "weights_s3_uri":   null,
-  "timeout_seconds":  3600,
+  "timeout_seconds":  7200,
+  "per_episode_s3_sync": true,
+  "federation_group_id": "fedrun-20260407-1656",
+  "federation_size":  2,
   "created_at":       "2026-03-25T12:00:00Z"
 }
 ```
@@ -73,7 +94,10 @@ Written by the dispatcher; read by the worker.
 | `agent` | `dqn`, `greedy`, or `random` |
 | `episodes` / `steps` / `duration` | Passed directly to `train.py` |
 | `weights_s3_uri` | S3 URI of a previous checkpoint to resume from — `null` = fresh start |
-| `timeout_seconds` | Worker kills `train.py` if it runs longer than this |
+| `timeout_seconds` | Worker kills `train.py` if it runs longer than this (default 3600; use 7200+ for longer runs) |
+| `per_episode_s3_sync` | When `true`, worker runs one episode at a time and synchronises weights via S3 between each |
+| `federation_group_id` | Non-empty means federated run; all jobs with same ID share one global model |
+| `federation_size` | Number of workers that must finish an episode before FedAvg runs |
 
 ---
 
@@ -89,12 +113,12 @@ Written by the worker after the job finishes (success, failure, or timeout).
   "started_at":         "2026-03-25T12:01:00Z",
   "finished_at":        "2026-03-25T12:31:00Z",
   "elapsed_seconds":    1800.0,
-  "episodes_completed": 10,
-  "total_reward":       45.23,
-  "final_reward":       6.11,
+  "episodes_completed": 2,
+  "total_reward":       -2.70,
+  "final_reward":       -1.35,
   "error":              null,
-  "checkpoint_s3_uri":  "s3://diya-simarena-jobs/results/job_.../checkpoint_final.pt",
-  "log_s3_uri":         "s3://diya-simarena-jobs/results/job_.../train.log"
+  "checkpoint_s3_uri":  "s3://diya-simarena-jobs-.../results/job_.../checkpoint_final.pt",
+  "log_s3_uri":         "s3://diya-simarena-jobs-.../results/job_.../train.log"
 }
 ```
 
@@ -112,47 +136,67 @@ Written by the worker after the job finishes (success, failure, or timeout).
 ## Running the Worker (on EC2)
 
 ```bash
+# 0. Health check — do this EVERY session before starting the worker
+kubectl get pods -A | grep kwok          # must be Running, not CrashLoopBackOff
+kubectl get nodes                         # all needed nodes must be Ready
+kubectl delete simulations.simkube.io --all -n default 2>/dev/null || true
+pkill -f "train.py" 2>/dev/null || true
+
 # 1. Activate env
-source ~/.bashrc
 source ~/work/sim-arena/.venv/bin/activate
 cd ~/work/sim-arena
 
-# 2. Start the worker (loops until you stop it)
-python protocol/worker.py --bucket diya-simarena-jobs
+# 2. Export env vars
+export AWS_ACCESS_KEY_ID=<your_key>
+export AWS_SECRET_ACCESS_KEY=<your_secret>
+export AWS_DEFAULT_REGION=us-east-2
+export SIM_ARENA_DRIVER_TIMEOUT=150
+export SIM_ARENA_DEPLOY_TIMEOUT=90
+export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
+export PYTHONPATH=/home/ubuntu/work/sim-arena
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
 
-# Optional flags:
-#   --worker-id my-worker-1    (default: EC2 instance ID or hostname)
-#   --poll-interval 60         (seconds between S3 polls when idle)
-#   --run-once                 (process one job then exit — good for testing)
-#   --log-level DEBUG
+# 3. Refresh K8s secret
+kubectl create secret generic simkube -n simkube \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_DEFAULT_REGION=us-east-2 \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 4. Run worker (process one job then exit)
+python protocol/worker.py --bucket "$JOBS_BUCKET" --run-once --log-level INFO
+
+# Or run continuously (loops and polls every 30s when idle):
+python protocol/worker.py --bucket "$JOBS_BUCKET" --log-level INFO
 ```
 
-The worker polls `jobs/pending/` every `--poll-interval` seconds, claims the first
-unclaimed job, runs `train.py`, uploads results, writes `result.json`, then loops.
+The worker polls `jobs/pending/` every `--poll-interval` seconds, claims the first unclaimed job, runs `train.py`, uploads results, writes `result.json`, then loops.
+
+**Why the health check matters:** If KWOK is crashing or nodes are NotReady, `train.py` will hang waiting for pods that never get scheduled, and the job will timeout after `timeout_seconds`. Ghost `simulations.simkube.io` CRDs left over from killed/timed-out runs have the same effect — delete them first.
 
 ---
 
-## Submitting a Job (from laptop or central server)
+## Submitting a Job (from laptop)
 
 ```bash
-cd ~/work/sim-arena
+cd ~/clinic_ACRL/sim-arena
 source .venv/bin/activate
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
 
-# Set your jobs bucket once (must match the bucket you created in S3)
-export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an   # example; use yours
-
-# Fresh start (no prior weights). Put --bucket on the same line as submit/list.
+# Single worker, fresh start
 python protocol/dispatch.py submit \
   --bucket "$JOBS_BUCKET" \
   --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
-  --agent dqn --episodes 10 --steps 20
+  --agent dqn --episodes 2 --steps 3 --duration 40 --timeout 7200
 
-# Resume from a previous checkpoint (pass updated weights from central server)
+# Federated run (submit once per worker, same GROUP)
+GROUP="fedrun-$(date +%Y%m%d-%H%M)"
 python protocol/dispatch.py submit \
   --bucket "$JOBS_BUCKET" \
   --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
-  --agent dqn --episodes 10 \
-  --weights s3://$JOBS_BUCKET/results/<prev_job_id>/checkpoint_final.pt
+  --agent dqn --episodes 2 --steps 3 --duration 40 --timeout 7200 \
+  --federation-group "$GROUP" --federation-size 2
+# run the above command TWICE (once per worker)
 ```
 
 ### Check job status
@@ -165,21 +209,81 @@ Output:
 
 ```
 Job ID                                        Status       Episodes   Total Reward
------
-job_20260325_120000_a1b2c3                    success            10          45.23
-job_20260325_130000_d4e5f6                    pending             -              -
+-------------------------------------------------------------------------------------
+job_20260407_235626_f1d114                    success             2          -2.70
+job_20260407_235626_f922f1                    success             2          -2.70
+job_20260409_051223_5263ff                    pending             -              -
+```
+
+### Cancel / remove a stale job
+
+```bash
+# Remove from pending so workers don't pick it up
+aws s3 rm "s3://$JOBS_BUCKET/jobs/pending/JOB_ID/manifest.json"
+# Remove claim marker if one exists
+aws s3 rm "s3://$JOBS_BUCKET/jobs/in_progress/JOB_ID/claimed_by" 2>/dev/null || true
 ```
 
 ---
 
-## Weights Flow (Training Rounds)
+## Per-episode S3 Sync
+
+Set `per_episode_s3_sync: true` on the manifest (CLI: `dispatch.py submit --per-episode-sync …`) when weights must be refreshed between every episode on the same job.
+
+**Worker behaviour:**
+
+1. Run `train.py` with `--episodes 1` for each episode (separate subprocess per episode).
+2. After episode `e`, upload the checkpoint to
+   `results/<job_id>/sync/from_worker/after_ep_XXXX/checkpoint.{pt|json}`
+   and write `done.json` next to it.
+3. Before episode `e+1`, wait until the server object exists:
+   `results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json}`
+   then download it and pass it to `train.py` as `--load … --transfer`.
+4. After the last episode, the worker still writes `checkpoint_final.*`, `train.log`, and `result.json`.
+
+---
+
+## Federated Learning (FedAvg, DQN only)
+
+### How it works
+
+Use the same `--federation-group` on every manifest and set `--federation-size` to the number of workers that must finish an episode before the round advances.
+
+1. **Dispatch:** submit `federation_size` jobs all with the same `--federation-group` and `--federation-size`.
+2. **Workers** run episode 1 independently, upload checkpoints under `results/_federation/<group>/from_worker/after_ep_0001/<worker_id>/`.
+3. **`sync_server.py`** waits until `federation_size` distinct `worker_id`s have uploaded for that episode, then runs **FedAvg** (mean of `q_net_state_dict` and `target_net_state_dict`), and writes one file for everyone: `results/_federation/<group>/to_worker/before_ep_0002/global_weights.pt`.
+4. **Workers** download that same object and continue episode 2 from the shared averaged policy.
+
+### Running the sync server
+
+Run this anywhere with S3 credentials (laptop, small EC2, etc.) and keep it running for the duration of the federated job:
+
+```bash
+cd ~/clinic_ACRL/sim-arena
+source .venv/bin/activate
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
+python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 10 --log-level INFO
+```
+
+**Order of operations:** submit jobs → start `sync_server` → start all workers. Workers block at each episode barrier until `sync_server` publishes `global_weights.pt`.
+
+### Important notes
+
+- Submit **exactly `federation_size` jobs** with the same group ID; workers block until the barrier fills.
+- **Agent must be `dqn`** for FedAvg (`.pt` checkpoints). Greedy/random agents use identity copy.
+- **Do not** use `--sync-identity-server` with `--federation-group` — use `sync_server.py` for FedAvg.
+- `sync_server_weights_timeout_seconds` (default 7200) caps how long each worker waits at a barrier.
+- `timeout_seconds` on the manifest caps how long each individual `train.py` subprocess runs.
+
+---
+
+## Weights Flow (Training Rounds without Federation)
 
 ```
 Round 1:  dispatch submit --trace ...                   (no --weights → fresh start)
           worker runs → writes checkpoint_final.pt
 
-Round 2:  central server aggregates weights (Task 3)
-          dispatch submit --trace ... \
+Round 2:  dispatch submit --trace ... \
             --weights s3://.../results/<round1_job>/checkpoint_final.pt
           worker downloads weights → runs train.py --load ... --transfer
           worker uploads new checkpoint_final.pt
@@ -187,91 +291,10 @@ Round 2:  central server aggregates weights (Task 3)
 Round N:  repeat
 ```
 
-The `--transfer` flag (automatically added by the worker when weights are provided)
-resets the agent's replay buffer and exploration schedule so learning continues
-cleanly from the new weights.
+The `--transfer` flag (automatically added by the worker when weights are provided) resets the agent's replay buffer and exploration schedule so learning continues cleanly from the new weights.
 
 ---
 
-<<<<<<< HEAD
-=======
-## Per-episode S3 sync (optional)
-
-Set `per_episode_s3_sync: true` on the manifest (CLI: `dispatch.py submit --per-episode-sync …`)
-when the **central server must refresh weights between every episode** on the same job.
-
-**Worker behaviour**
-
-1. Run `train.py` with `--episodes 1` for each episode (separate subprocess per episode).
-2. After episode `e`, upload the checkpoint to  
-   `results/<job_id>/sync/from_worker/after_ep_XXXX/checkpoint.{pt|json}`  
-   and write `done.json` next to it (`episode_index`, `total_episodes`, `agent`, reward, worker id).
-3. Before episode `e+1` (when `e+1 >= 2`), wait until the server object exists:  
-   `results/<job_id>/sync/to_worker/before_ep_XXXX/weights.{pt|json}`  
-   then download it and pass it to `train.py` as `--load … --transfer`.
-4. After the last episode, the worker still writes `checkpoint_final.*`, `train.log`, and `result.json` as in the default layout.
-
-### Included sync server (`sync_server.py`)
-
-The repo ships **`protocol/sync_server.py`**, a small process that **polls S3** and, whenever it sees
-`from_worker/after_ep_XXXX/done.json`, **copies** the matching worker checkpoint to
-`to_worker/before_ep_{XXXX+1}/weights.*` if that key does not exist yet. That is an **identity
-(pass-through)** barrier: it completes the loop so workers do not need `--sync-identity-server`.
-
-Run it anywhere with bucket credentials (laptop, tiny EC2, systemd service):
-
-```bash
-cd ~/work/sim-arena && source .venv/bin/activate
-export JOBS_BUCKET=your-jobs-bucket
-python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 15
-# one-shot (e.g. cron):
-python protocol/sync_server.py --bucket "$JOBS_BUCKET" --once
-```
-
-### Federated learning (shared global weights, **DQN only**)
-
-Use the same **`federation_group_id`** on every worker’s manifest and set **`federation_size`**
-to the number of workers that must finish an episode before the round advances.
-
-- **Dispatch:**  
-  `dispatch.py submit … --federation-group my-run-001 --federation-size 2`  
-  (implies per-episode sync; **agent must be `dqn`**.)
-
-- **Worker uploads** (per episode, per machine):  
-  `results/_federation/<group_id>/from_worker/after_ep_XXXX/<worker_id>/checkpoint.pt`  
-  plus `done.json` (includes `federation_size`, `total_episodes`, `agent`).
-
-- **`sync_server.py`** waits until **`federation_size`** distinct `worker_id`s have uploaded for
-  that group and episode, then runs **FedAvg** (mean of `q_net_state_dict` and
-  `target_net_state_dict`), and writes **one** file for everyone:  
-  `results/_federation/<group_id>/to_worker/before_ep_XXXX/global_weights.pt`
-
-- **Before the next episode**, every worker in the group downloads that **same** object. All
-  machines then continue from the **same averaged** policy.
-
-**Important:** submit **exactly `federation_size` jobs** with the same `--federation-group` and
-`--federation-size`, or workers will block until the barrier fills. If more than
-`federation_size` workers submit for the same episode, the server averages the first
-`federation_size` IDs (sorted lexicographically) — avoid over-submitting.
-
-**Non-federated jobs** (no `federation_group_id`) still use the per-job `results/<job_id>/sync/…`
-layout and identity `copy_object` in `sync_server.py`.
-
-**Testing a single worker without `sync_server.py`:** use `--per-episode-sync --sync-identity-server`
-so the worker copies its own checkpoint into the next `to_worker/…` key. **Do not** use
-`--sync-identity-server` with `--federation-group` (disallowed); use `sync_server.py` for FedAvg.
-
-**Timeouts:** `sync_server_weights_timeout_seconds` on the manifest caps how long the worker waits at each barrier. Each `train.py` subprocess is still limited by `timeout_seconds` on the manifest.
-
-**Parallel EC2 instances:** unchanged — each instance claims a different `job_id` under `jobs/pending/`. Submit one manifest per instance (or run `ops/ec2_workers.py` / your launcher) so many workers pick up different jobs in parallel.
-
-**Stopping the instance after N episodes:** the worker does not count episodes across jobs. After exactly one manifest with `episodes: N` finishes, use  
-`python protocol/worker.py --bucket … --run-once --shutdown-after-job`  
-so the process exits and the AMI attempts `shutdown -h now` (needs passwordless `sudo` or root). Pair with an ASG lifecycle rule or `InstanceInitiatedShutdownBehavior` / spot interruption as appropriate.
-
----
-
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## Failure Handling
 
 | Scenario | Worker behaviour | result.json `status` |
@@ -279,7 +302,9 @@ so the process exits and the AMI attempts `shutdown -h now` (needs passwordless 
 | `train.py` exits non-zero | Log uploaded if available; no checkpoint | `"failed"` |
 | Job exceeds `timeout_seconds` | `subprocess.run` raises `TimeoutExpired`; process killed | `"timeout"` |
 | Weights download fails | Exception caught; job marked failed immediately | `"failed"` |
-| Two workers claim same job | Both may run it; central server deduplicates by `job_id` | whichever writes last wins |
+| Two workers claim same job | Both may run it; deduplication happens via `claimed_by` check | first writer wins |
+| KWOK CrashLoopBackOff | train.py hangs (pods never schedule) → timeout | `"timeout"` |
+| Ghost simulations in namespace | train.py hangs immediately → timeout | `"timeout"` |
 
 ---
 
@@ -290,10 +315,11 @@ The worker inherits these from the shell (same as running `train.py` directly):
 | Variable | Required | Notes |
 |----------|----------|-------|
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes | For S3 reads/writes |
-| `AWS_DEFAULT_REGION` | Yes | Default: `us-east-2` |
+| `AWS_DEFAULT_REGION` | Yes | Use `us-east-2` |
 | `SIM_ARENA_DRIVER_TIMEOUT` | Recommended | Set to `150` on EC2 |
 | `SIM_ARENA_DEPLOY_TIMEOUT` | Recommended | Set to `90` on EC2 |
 | `SIM_ARENA_NODE_DATA_DIR` | Yes | `/var/kind/cluster` on EC2 |
+| `PYTHONPATH` | Yes | `/home/ubuntu/work/sim-arena` on EC2 |
 | `JOBS_BUCKET` | Optional | Overrides `--bucket` default |
 
 ---
@@ -302,26 +328,16 @@ The worker inherits these from the shell (same as running `train.py` directly):
 
 ```
 protocol/
-<<<<<<< HEAD
-  schemas.py     — JobManifest and JobResult dataclasses
-  s3_helpers.py  — thin boto3 wrappers (upload, download, list, put/get JSON)
-  worker.py      — EC2 worker polling loop
-  dispatch.py    — submit jobs and check status from a laptop or central server
-
-tests/
-  test_protocol.py — 22 unit tests (no AWS credentials required)
-=======
-  schemas.py      — JobManifest and JobResult dataclasses
-  s3_helpers.py   — thin boto3 wrappers (upload, download, list, put/get JSON)
-  sync_paths.py   — S3 key helpers for per-episode sync
+  schemas.py       — JobManifest and JobResult dataclasses
+  s3_helpers.py    — thin boto3 wrappers (upload, download, list, put/get JSON)
+  sync_paths.py    — canonical S3 key helpers for per-episode sync and federation
   sync_server.py   — polls S3: identity barriers + FedAvg for federation groups
   federated_avg.py — mean of DQN q_net / target_net checkpoints
   worker.py        — EC2 worker polling loop
   dispatch.py      — submit jobs and check status from a laptop or central server
 
 tests/
-  test_protocol.py     — worker/dispatch/schema tests (mocked)
-  test_sync_server.py  — sync server and path tests (mocked)
+  test_protocol.py      — worker/dispatch/schema tests (mocked, no AWS needed)
+  test_sync_server.py   — sync server and path tests (mocked)
   test_federated_avg.py — FedAvg tensor math
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ```

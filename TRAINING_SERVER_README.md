@@ -1,4 +1,8 @@
-# Training Server
+# Training Server (Design Spec — Not Yet Implemented)
+
+> **Note:** This document describes a planned Flask-based training server dashboard. The file `training_server.py` does **not currently exist** in this repo. The actual coordination between workers is handled by `protocol/sync_server.py` (S3-based FedAvg) and `protocol/dispatch.py` (job submission CLI). See `docs/WORKER_PROTOCOL.md` for the working implementation.
+
+---
 
 The training server provides a centralized web interface for managing distributed DQN training runs across multiple EC2 instances.
 

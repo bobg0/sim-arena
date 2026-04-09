@@ -25,7 +25,7 @@ Educational test suite for MessagePack file operations. Shows:
 
 ### Run with verbose output:
 ```bash
-cd /home/bogao/sim-arena
+cd ~/clinic_ACRL/sim-arena
 python -m pytest tests/test_ops_detailed.py -v -s
 python -m pytest tests/test_trace_io_detailed.py -v -s
 ```

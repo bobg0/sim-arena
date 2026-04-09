@@ -157,21 +157,26 @@ def run_tuning_report():
 
 def test_healthy_wasteful_drops_reward():
     """
-    Sanity 1: Healthy but wasteful → reward should drop visibly (0.9 → 0.5–0.7).
+    Sanity 1: Healthy but wasteful → reward should drop visibly relative to efficient.
+
+    All non-goal rewards are negative by design (per Erin Talvitie: terminal state = 0,
+    all others < 0). We use healthy-overshoot scenarios (total = target + 1) so that
+    cost differentiation is not masked by the at-goal short-circuit (which returns 0
+    regardless of resource usage).
     """
-    # Efficient: 3 ready, 500m/256Mi
+    # Efficient healthy overshoot: 1 extra replica, minimal resources
     c_eff = reward_cost_aware(
-        {"ready": 3, "pending": 0, "total": 3},
+        {"ready": 3, "pending": 0, "total": 4},
         TARGET,
-        {"cpu": "500m", "memory": "256Mi", "replicas": 3},
+        {"cpu": "500m", "memory": "256Mi", "replicas": 4},
     )
-    # Wasteful CPU: 3 ready, 10 CPU/pod
+    # Wasteful CPU healthy overshoot: same overshoot, excessive CPU + memory
     c_waste_cpu = reward_cost_aware(
-        {"ready": 3, "pending": 0, "total": 3},
+        {"ready": 3, "pending": 0, "total": 4},
         TARGET,
-        {"cpu": "10000m", "memory": "2Gi", "replicas": 3},
+        {"cpu": "10000m", "memory": "2Gi", "replicas": 4},
     )
-    # Wasteful replicas: 5 ready, 5 total
+    # Wasteful replicas: 5 ready, 5 total (bigger overshoot, moderate resources)
     c_waste_rep = reward_cost_aware(
         {"ready": 5, "pending": 0, "total": 5},
         TARGET,
@@ -185,11 +190,12 @@ def test_healthy_wasteful_drops_reward():
     assert c_eff["reward"] > c_waste_rep["reward"], (
         f"Efficient (r={c_eff['reward']:.3f}) should score higher than wasteful replicas (r={c_waste_rep['reward']:.3f})"
     )
-    assert 0.5 <= c_waste_cpu["reward"] <= 0.9, (
-        f"Healthy wasteful CPU reward {c_waste_cpu['reward']:.3f} should be in [0.5, 0.9]"
+    # All non-goal rewards are in [-1, 0) by design
+    assert -1.0 <= c_waste_cpu["reward"] < 0.0, (
+        f"Wasteful CPU reward {c_waste_cpu['reward']:.3f} should be in [-1, 0)"
     )
-    assert 0.5 <= c_waste_rep["reward"] <= 0.9, (
-        f"Healthy wasteful replicas reward {c_waste_rep['reward']:.3f} should be in [0.5, 0.9]"
+    assert -1.0 <= c_waste_rep["reward"] < 0.0, (
+        f"Wasteful replicas reward {c_waste_rep['reward']:.3f} should be in [-1, 0)"
     )
 
 

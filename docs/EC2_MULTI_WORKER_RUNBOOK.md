@@ -1,8 +1,8 @@
 # SimArena Multi-Worker EC2 Runbook
 
-This runbook completes Task 1 from [docs/NEXT_TASKS.md](/home/bogao/sim-arena/docs/NEXT_TASKS.md): launch `N` workers from the prebuilt SimArena AMI, tag them consistently, collect their IPs into a machine list, and shut them down cleanly when the run is over.
+This runbook covers launching `N` workers from the prebuilt SimArena AMI, tagging them consistently, collecting their IPs into a machine list, and shutting them down cleanly when the run is over.
 
-The automation lives in [ops/ec2_workers.py](/home/bogao/sim-arena/ops/ec2_workers.py).
+The automation lives in [ops/ec2_workers.py](../ops/ec2_workers.py).
 
 The same module now exposes a library-style API for future in-process training integration:
 
@@ -53,14 +53,14 @@ These are the values a human needs to confirm once in AWS. The script uses them,
 
 1. Confirm the region is `us-east-2`.
 2. Confirm the AMI is `ami-08d19a1b7f569b848` (`simkube-simarena-s3-ready-2026-03-08`).
-3. Confirm the EC2 key pair name is `bob-s3-test-key`.
+3. Confirm the EC2 key pair name (`diya_simkube_key` for Diya's account; substitute your own).
 4. Find the security group ID you want attached to every worker.
    Use the EC2 console on the launch page or on `EC2 > Security Groups`.
    The group must allow inbound SSH from your operator machine.
 5. Pick a subnet that assigns public IPv4 addresses if you want the controller script to bootstrap workers over SSH.
    The safest approach is to pass `--subnet-id` explicitly instead of relying on the default subnet selection.
-6. Confirm the S3 bucket name for traces is `bob-simarena-traces`.
-   The current known-good trace path is `s3://bob-simarena-traces/demo/trace-mem-slight.msgpack`.
+6. Confirm the S3 bucket name for traces is `diya-simarena-traces`.
+   The current known-good trace path is `s3://diya-simarena-traces/demo/trace-mem-slight.msgpack`.
 
 ## Credentials
 
@@ -74,29 +74,24 @@ The script reads the resolved credentials from boto3 and pushes them into the `s
 ## Required local files
 
 - The repo checked out locally
-- The PEM file for the AWS key pair, currently `bob-s3-test-key.pem`
+- The PEM file for the AWS key pair (e.g. `~/clinic_ACRL/diya_simkube_key.pem`; substitute your own).
 
-The default SSH key path expected by the script is:
-
-```bash
-/home/bogao/sim-arena/bob-s3-test-key.pem
-```
-
-If your PEM is elsewhere, pass `--ssh-key-path`.
+Pass `--ssh-key-path /path/to/your.pem` to the script. There is no hardcoded default path.
 
 ## Launch command
 
 Example:
 
 ```bash
-cd /home/bogao/sim-arena
+cd ~/clinic_ACRL/sim-arena
 source .venv/bin/activate
 
 python ops/ec2_workers.py launch \
-  --count 3 \
+  --count 2 \
   --region us-east-2 \
   --instance-type c6a.xlarge \
-  --key-name bob-s3-test-key \
+  --key-name diya_simkube_key \
+  --ssh-key-path ~/clinic_ACRL/diya_simkube_key.pem \
   --security-group-id sg-REPLACE_ME \
   --subnet-id subnet-REPLACE_ME
 ```
@@ -122,8 +117,8 @@ Example fields:
 ```json
 {
   "run_id": "20260324-220000",
-  "trace_bucket": "bob-simarena-traces",
-  "trace_path": "s3://bob-simarena-traces/demo/trace-mem-slight.msgpack",
+  "trace_bucket": "diya-simarena-traces",
+  "trace_path": "s3://diya-simarena-traces/demo/trace-mem-slight.msgpack",
   "instances": [
     {
       "instance_id": "i-0123456789abcdef0",
@@ -207,7 +202,7 @@ Terminate remains the recommended default for ephemeral workers, because stopped
 
 ## Relationship to the single-instance AMI guide
 
-[docs/EC2_SETUP_FROM_SCRATCH.md](/home/bogao/sim-arena/docs/EC2_SETUP_FROM_SCRATCH.md) remains the source for understanding what the AMI contains and how a single worker behaves after login.
+[docs/EC2_SETUP_FROM_SCRATCH.md](EC2_SETUP_FROM_SCRATCH.md) remains the source for understanding what the AMI contains and how a single worker behaves after login.
 
 This multi-worker runbook builds on that setup with:
 

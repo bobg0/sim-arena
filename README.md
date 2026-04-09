@@ -1,23 +1,11 @@
 # Sim-Arena
 
-<<<<<<< HEAD
-=======
-**Canonical README** for this codebase inside the [`clinic_ACRL`](../README.md) monorepo — use this file for setup, training, benchmarks, and operations.
+**Canonical README** for the `sim-arena` codebase — use this file for setup, training, benchmarks, and distributed operations.
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
-> **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy. Now also supports **LLM benchmarking** — Gemini and Claude models can be evaluated on the same scenarios using live Kubernetes tool access via MCP.
+> **TL;DR**: A reinforcement learning gym where AI agents (DQN, Epsilon-Greedy, or hand-coded policies) learn to fix Kubernetes resource problems by running simulations, observing pod states, taking actions (like increasing CPU), and getting rewards when pods become healthy. Now also supports **LLM benchmarking** — Gemini and Claude models can be evaluated on the same scenarios using live Kubernetes tool access via MCP. For distributed multi-worker training, see the `protocol/` directory and the runbooks in `docs/`.
 
 ---
 
-<<<<<<< HEAD
-=======
-## Repository context (`clinic_ACRL`)
-
-This folder is part of the **`clinic_ACRL`** monorepo (sibling trees: `simkube/`, `isengard/`, optional `sim-arena-backup/`). For a **single document** that explains the whole workspace, distributed jobs, EC2, and what is still stubbed, read **[`../PROJECT_OUTLINE_CHATGPT.md`](../PROJECT_OUTLINE_CHATGPT.md)** from the repo root.
-
----
-
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## Table of Contents
 
 1. [What This System Does](#what-this-system-does)
@@ -29,12 +17,8 @@ This folder is part of the **`clinic_ACRL`** monorepo (sibling trees: `simkube/`
 7. [Key Concepts](#key-concepts)
 8. [How to Use](#how-to-use)
 9. [LLM Benchmarking](#llm-benchmarking)
-<<<<<<< HEAD
-10. [For Future Development](#for-future-development)
-=======
-10. [Distributed training (S3 workers and EC2)](#distributed-training-s3-workers-and-ec2)
+10. [Distributed Training (S3 workers and EC2)](#distributed-training-s3-workers-and-ec2)
 11. [For Future Development](#for-future-development)
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 ---
 
@@ -52,6 +36,8 @@ This folder is part of the **`clinic_ACRL`** monorepo (sibling trees: `simkube/`
 **RL Training**: Fully working training loop with DQN and Epsilon-Greedy agents, plus hand-coded fallback policies. Checkpointing, visualization, and learning curve tracking are all supported.
 
 **LLM Benchmarking**: LLM agents (Gemini, Claude) can be evaluated on the same scenarios. They use MCP tools to query the live cluster — pod states, events, logs, deployment config — before deciding on an action. Both RL and LLM agents share the same action space and reward functions.
+
+**Distributed / Federated Training**: Multiple EC2 workers can run jobs in parallel using an S3-based communication protocol. A `sync_server.py` process coordinates federated averaging (FedAvg) of DQN weights between episodes across workers.
 
 ---
 
@@ -103,6 +89,25 @@ for each scenario:
   6. Record metrics (steps, reward, tool calls, latency, solved)
      ↓
   Output: report.json + report.md in benchmark/results/
+
+┌─────────────────────────────────────────────────────────────┐
+│           DISTRIBUTED / FEDERATED TRAINING (EC2)            │
+└─────────────────────────────────────────────────────────────┘
+
+  Mac/laptop: dispatch.py submit → writes manifest.json to S3
+              sync_server.py     → runs locally, polls S3
+
+  EC2 Worker 1:  worker.py → claims job → train.py ep 1
+                             → upload checkpoint to S3
+                             → wait for global_weights.pt (FedAvg barrier)
+                             → train.py ep 2 with averaged weights
+
+  EC2 Worker 2:  worker.py → claims job → train.py ep 1
+                             → upload checkpoint to S3
+                             → wait for global_weights.pt (same barrier)
+                             → train.py ep 2 with averaged weights
+
+  sync_server.py: sees both workers done → FedAvg → writes global_weights.pt
 ```
 
 ---
@@ -131,6 +136,15 @@ sim-arena/
 │       ├── gemini_provider.py  # Google Gemini (google-genai SDK)
 │       └── anthropic_provider.py  # Anthropic Claude
 │
+├── protocol/                  # ★ Distributed training communication layer
+│   ├── dispatch.py           # CLI: submit jobs to S3 + list status
+│   ├── worker.py             # EC2 worker: poll S3, claim jobs, run train.py
+│   ├── sync_server.py        # ★ Per-episode barrier + FedAvg aggregation
+│   ├── federated_avg.py      # FedAvg: average DQN q_net / target_net weights
+│   ├── schemas.py            # JobManifest + JobResult dataclasses
+│   ├── s3_helpers.py         # boto3 upload/download/list/JSON helpers
+│   └── sync_paths.py         # Canonical S3 keys for per-episode sync
+│
 ├── sim_mcp/                   # ★ MCP server: Kubernetes observability tools
 │   ├── server.py             # FastMCP server (runs as stdio subprocess)
 │   ├── client.py             # MCPClientSync wrapper used by LLMAgent
@@ -150,6 +164,7 @@ sim-arena/
 │
 ├── env/                       # Environment (simulation wrapper)
 │   ├── sim_env.py            # Create/delete SimKube simulations
+│   ├── simkube_gymenv.py     # Gymnasium-compatible SimKubeEnv wrapper
 │   ├── __init__.py
 │   └── actions/              # Trace mutation operations
 │       ├── ops.py            # bump_cpu, bump_mem, scale_replicas
@@ -162,16 +177,24 @@ sim-arena/
 │
 ├── ops/                       # Infrastructure/lifecycle
 │   ├── hooks.py              # Pre-start/post-end hooks
-│   └── preflight.py          # Cluster health checks
+│   ├── preflight.py          # Cluster health checks
+│   └── ec2_workers.py        # ★ Launch / terminate EC2 worker fleets (boto3)
 │
 ├── demo/                      # Demo traces & scripts
 │   ├── traces/               # 100 generated trace files (.msgpack + .json)
 │   ├── generate_traces.py    # Script to make more traces
 │   └── *.py                  # Conversion helpers (json2msg, normalize, etc.)
 │
+├── docs/                      # Runbooks and protocol docs
+│   ├── WORKER_PROTOCOL.md    # S3 job protocol: manifests, results, FedAvg
+│   ├── EC2_MULTI_WORKER_RUNBOOK.md  # Launch N workers from AMI
+│   ├── EC2_SETUP_FROM_SCRATCH.md   # Single-instance setup guide
+│   ├── WORKER_SETUP.md       # Worker-specific cheat sheet
+│   └── NEXT_TASKS.md         # Project task history (all tasks completed)
+│
 ├── checkpoints/               # ★ Auto-saved RL agent checkpoints
 ├── tests/                     # Unit & integration tests
-├── runs/                      # Per-step output logs (step.jsonl, summary.json)
+├── runs/                      # Per-step output logs + EC2 worker inventory JSON
 ├── .env.example               # API key template — copy to .env and fill in
 └── docs/archive/              # Archived design docs
 ```
@@ -242,6 +265,53 @@ benchmark/run.py:
                 4. LLM returns JSON → action index (same ACTION_SPACE)
   4. Record: steps_to_solve, reward, tool_calls, latency, solved
   5. Write benchmark/results/<timestamp>/report.json + report.md
+```
+
+### The Distributed / Federated Training Flow
+
+```
+OPERATOR (from laptop):
+  export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
+  GROUP="fedrun-$(date +%Y%m%d-%H%M)"
+  python protocol/dispatch.py submit --bucket "$JOBS_BUCKET" \
+    --trace s3://diya-simarena-traces/demo/trace-mem-slight.msgpack \
+    --agent dqn --episodes 2 --steps 3 --duration 40 --timeout 7200 \
+    --federation-group "$GROUP" --federation-size 2
+  # (run the above twice — one manifest per worker)
+
+  python protocol/sync_server.py --bucket "$JOBS_BUCKET" --poll-interval 10
+  # keep this running; it does FedAvg when both workers finish an episode
+
+ON EACH EC2 WORKER (ssh in, then):
+  # 0. Health check FIRST — do this every session
+  kubectl get pods -A | grep kwok          # must be Running, not CrashLoopBackOff
+  kubectl get nodes                         # all needed nodes must be Ready
+  kubectl delete simulations.simkube.io --all -n default 2>/dev/null || true
+  pkill -f "train.py" 2>/dev/null || true
+
+  # 1. Pull latest code
+  cd ~/work/sim-arena && git pull --rebase origin main
+  source .venv/bin/activate
+
+  # 2. Export credentials + env
+  export AWS_ACCESS_KEY_ID=<your_key>
+  export AWS_SECRET_ACCESS_KEY=<your_secret>
+  export AWS_DEFAULT_REGION=us-east-2
+  export SIM_ARENA_DRIVER_TIMEOUT=150
+  export SIM_ARENA_DEPLOY_TIMEOUT=90
+  export SIM_ARENA_NODE_DATA_DIR=/var/kind/cluster
+  export PYTHONPATH=/home/ubuntu/work/sim-arena
+  export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
+
+  # 3. Refresh K8s secret
+  kubectl create secret generic simkube -n simkube \
+    --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+    --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+    --from-literal=AWS_DEFAULT_REGION=us-east-2 \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  # 4. Run worker
+  python protocol/worker.py --bucket "$JOBS_BUCKET" --run-once --log-level INFO
 ```
 
 ---
@@ -385,7 +455,7 @@ def one_step(trace_path, namespace, deploy, target, duration, agent, reward_name
 
 ### Traces
 
-MessagePack files containing recorded Kubernetes events. `demo/traces/` contains 100 pre-generated traces. `demo/generate_traces.py` creates more.
+MessagePack files containing recorded Kubernetes events. `demo/traces/` contains 100 pre-generated traces. `demo/generate_traces.py` creates more. Remote traces live in `s3://diya-simarena-traces/`.
 
 ### Agents
 
@@ -415,7 +485,7 @@ cp .env.example .env
 ### Train a DQN Agent
 
 ```bash
-# Clean up any ghost simulations first
+# Clean up any ghost simulations first (do this every session)
 pkill -f "train.py.*--ns virtual-default"
 kubectl delete simulations.simkube.io --all -n virtual-default
 
@@ -518,24 +588,31 @@ The response is parsed by `agent/action_parser.py` with three fallback strategie
 
 ---
 
-<<<<<<< HEAD
-=======
-## Distributed training (S3 workers and EC2)
+## Distributed Training (S3 workers and EC2)
 
-For scaling beyond a single machine, jobs are defined as **manifests in S3**; **EC2 workers** poll the bucket, run `runner/train.py`, and upload **checkpoints**, **logs**, and **`result.json`**.
+For scaling beyond a single machine, jobs are defined as **manifests in S3**; **EC2 workers** poll the bucket, run `runner/train.py`, and upload **checkpoints**, **logs**, and **`result.json`**. A `sync_server.py` process handles per-episode weight coordination and optional **FedAvg** across workers.
 
 | Topic | Location |
 |-------|----------|
-| Protocol (manifests, results, CLI) | [`docs/WORKER_PROTOCOL.md`](docs/WORKER_PROTOCOL.md), `protocol/` (run `sync_server.py` with `--per-episode-sync` jobs) |
-| Launch many EC2 workers + inventory JSON | [`docs/EC2_MULTI_WORKER_RUNBOOK.md`](docs/EC2_MULTI_WORKER_RUNBOOK.md), `ops/ec2_workers.py` |
+| Protocol (manifests, results, federation) | [`docs/WORKER_PROTOCOL.md`](docs/WORKER_PROTOCOL.md) |
+| Launch N EC2 workers + inventory JSON | [`docs/EC2_MULTI_WORKER_RUNBOOK.md`](docs/EC2_MULTI_WORKER_RUNBOOK.md) |
 | Single-instance AMI / S3 secret setup | [`docs/EC2_SETUP_FROM_SCRATCH.md`](docs/EC2_SETUP_FROM_SCRATCH.md) |
-| Roadmap (tasks 1–3) | [`docs/NEXT_TASKS.md`](docs/NEXT_TASKS.md) |
+| Worker cheat sheet (env vars, traces) | [`docs/WORKER_SETUP.md`](docs/WORKER_SETUP.md) |
+| Task history (all tasks completed) | [`docs/NEXT_TASKS.md`](docs/NEXT_TASKS.md) |
 
-**Note:** [`TRAINING_SERVER_README.md`](TRAINING_SERVER_README.md) describes a Flask “central server” that is **not present as `training_server.py` in this repo** — treat it as design unless you add that service. **`runner/dist_run.py`** is currently a **stub**; `job_type=experience_collection` is not end-to-end until that runner is implemented (see [`PROJECT_OUTLINE_CHATGPT.md`](../PROJECT_OUTLINE_CHATGPT.md) §7).
+**Note:** [`TRAINING_SERVER_README.md`](TRAINING_SERVER_README.md) describes a Flask "central server" design that is **not yet implemented** as `training_server.py` in this repo — treat it as a design spec. **`runner/dist_run.py`** is a **stub**; `job_type=experience_collection` is not end-to-end until that runner is implemented.
+
+**Before every worker session**, always run the cluster health check first to avoid timeouts from ghost simulations or KWOK crashes:
+
+```bash
+kubectl get pods -A | grep kwok                                      # must be Running
+kubectl get nodes                                                      # all needed nodes Ready
+kubectl delete simulations.simkube.io --all -n default 2>/dev/null || true
+pkill -f "train.py" 2>/dev/null || true
+```
 
 ---
 
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 ## For Future Development
 
 ### Adding a New RL Agent
@@ -563,6 +640,10 @@ Add features in `observe/reader.py` and update `state_dim` in `runner/train.py` 
 ### Adding Benchmark Scenarios
 
 Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `demo/traces/`.
+
+### Implementing `runner/dist_run.py` (Experience Collection)
+
+The stub currently exits immediately. Implement `run_experience_collection(manifest)` to run episodes with `job_type=experience_collection`, save transitions to S3, and write `result.json` with `transitions_s3_uri`.
 
 ---
 
@@ -592,13 +673,10 @@ Add entries to `benchmark/scenarios/index.json` pointing at any trace file in `d
 | Simulation management | `env/sim_env.py` |
 | Resource safeguards | `runner/safeguards.py` |
 | Cluster health checks | `ops/preflight.py` |
-<<<<<<< HEAD
-=======
 | S3 job dispatch (submit/list) | `protocol/dispatch.py` |
 | EC2 worker polling loop | `protocol/worker.py` |
-| Per-episode S3 barrier + optional FedAvg across workers | `protocol/sync_server.py`, `protocol/federated_avg.py` |
+| Per-episode S3 barrier + FedAvg | `protocol/sync_server.py`, `protocol/federated_avg.py` |
 | EC2 fleet launch / terminate | `ops/ec2_workers.py` |
->>>>>>> 9e57c0a58d1f237a151c563072078757a87c2a1d
 
 ### Data Flow
 
@@ -611,4 +689,9 @@ Trace → Simulation → Cluster → Observation → Agent → Action → Modifi
                                             (MCP tools) ───┘
                                                   ↓
                                             Reward + Metrics
+
+Distributed:
+  S3 manifest → worker.py → train.py → S3 checkpoint
+                                 ↑            ↓
+                          sync_server.py ← FedAvg ← all workers' checkpoints
 ```
