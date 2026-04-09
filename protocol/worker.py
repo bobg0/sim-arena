@@ -409,6 +409,7 @@ def _run_training_job_per_episode_sync(
         result_prefix = f"results/{manifest.job_id}"
         checkpoint_s3_uri: Optional[str] = None
         log_s3_uri: Optional[str] = None
+        transitions_s3_uri: Optional[str] = None
 
         if save_path.exists():
             ckpt_key = f"{result_prefix}/checkpoint_final{ext}"
@@ -419,6 +420,15 @@ def _run_training_job_per_episode_sync(
             log_key = f"{result_prefix}/train.log"
             upload_file(str(combined_log), bucket, log_key)
             log_s3_uri = f"s3://{bucket}/{log_key}"
+
+        # Upload per-step transition log (obs/action/reward each step) so results
+        # are inspectable without SSH access to the EC2 instance.
+        step_jsonl = PROJECT_ROOT / "runs" / "step.jsonl"
+        if step_jsonl.exists():
+            steps_key = f"{result_prefix}/steps.jsonl"
+            upload_file(str(step_jsonl), bucket, steps_key)
+            transitions_s3_uri = f"s3://{bucket}/{steps_key}"
+            logger.info(f"Uploaded step transitions → {transitions_s3_uri}")
 
         total_reward = round(sum(episode_rewards), 4) if episode_rewards else None
         final_reward = round(episode_rewards[-1], 4) if episode_rewards else None
@@ -435,11 +445,13 @@ def _run_training_job_per_episode_sync(
             final_reward=final_reward,
             checkpoint_s3_uri=checkpoint_s3_uri,
             log_s3_uri=log_s3_uri,
+            transitions_s3_uri=transitions_s3_uri,
         )
 
     except subprocess.TimeoutExpired:
         logger.error(f"Job {manifest.job_id} timed out during per-episode sync")
         log_uri = _try_upload_train_log(bucket, manifest.job_id, combined_log)
+        steps_uri = _try_upload_step_jsonl(bucket, manifest.job_id)
         return JobResult(
             job_id=manifest.job_id,
             worker_id=worker_id,
@@ -449,10 +461,12 @@ def _run_training_job_per_episode_sync(
             elapsed_seconds=round(time.time() - t0, 1),
             error=f"Timed out after {manifest.timeout_seconds}s (per-episode sync)",
             log_s3_uri=log_uri,
+            transitions_s3_uri=steps_uri,
         )
     except Exception as e:
         logger.exception(f"Job {manifest.job_id} failed (per-episode sync): {e}")
         log_uri = _try_upload_train_log(bucket, manifest.job_id, combined_log)
+        steps_uri = _try_upload_step_jsonl(bucket, manifest.job_id)
         return JobResult(
             job_id=manifest.job_id,
             worker_id=worker_id,
@@ -462,6 +476,7 @@ def _run_training_job_per_episode_sync(
             elapsed_seconds=round(time.time() - t0, 1),
             error=str(e),
             log_s3_uri=log_uri,
+            transitions_s3_uri=steps_uri,
         )
 
 
@@ -477,6 +492,22 @@ def _try_upload_train_log(bucket: str, job_id: str, log_path: Path) -> Optional[
         return uri
     except Exception as ex:
         logger.warning(f"Could not upload train.log: {ex}")
+        return None
+
+
+def _try_upload_step_jsonl(bucket: str, job_id: str) -> Optional[str]:
+    """On any run outcome, upload step.jsonl so per-step obs/reward is always recoverable."""
+    step_jsonl = PROJECT_ROOT / "runs" / "step.jsonl"
+    if not step_jsonl.exists():
+        return None
+    try:
+        key = f"results/{job_id}/steps.jsonl"
+        upload_file(str(step_jsonl), bucket, key)
+        uri = f"s3://{bucket}/{key}"
+        logger.info(f"Uploaded step transitions → {uri}")
+        return uri
+    except Exception as ex:
+        logger.warning(f"Could not upload steps.jsonl: {ex}")
         return None
 
 
