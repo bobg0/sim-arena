@@ -1,86 +1,41 @@
 # SimArena Multi-Worker EC2 Runbook
 
-This runbook covers launching `N` workers from the prebuilt SimArena AMI, tagging them consistently, collecting their IPs into a machine list, and shutting them down cleanly when the run is over.
+This is the operational playbook for running distributed/federated training across multiple EC2 workers and collecting evidence from each worker run.
 
-The automation lives in [ops/ec2_workers.py](../ops/ec2_workers.py).
+Automation entrypoint: [ops/ec2_workers.py](../ops/ec2_workers.py)
 
-The same module now exposes a library-style API for future in-process training integration:
+---
 
-```python
-from ops.ec2_workers import LaunchConfig, CleanupConfig, launch_workers, cleanup_workers
+## 1) Prerequisites (local operator machine)
 
-launch = launch_workers(
-    LaunchConfig(
-        count=2,
-        region="us-east-2",
-        security_group_ids=["sg-..."], # sg-06cddec780dfbdae4 <-- find your on aws
-        subnet_id="subnet-...", # subnet-09f1a971bd8077ea7 <-- find your own on aws
-        bootstrap_secret=False,
-    )
-)
+Required:
 
-# launch.instances contains structured worker metadata.
+- Repo cloned at `~/clinic_ACRL/sim-arena`
+- Virtualenv activated (`source .venv/bin/activate`)
+- AWS credentials configured (`AWS_PROFILE` or env vars)
+- SSH key PEM available locally (example: `~/clinic_ACRL/diya_simkube_key.pem`)
+- `aws`, `kubectl`, `python` available in shell
 
-cleanup_workers(
-    CleanupConfig(
-        action="terminate",
-        region=launch.region,
-        inventory_file=launch.inventory_path,
-        require_confirmation=False,
-    )
-)
-```
+Known-good defaults in this project:
 
-## What the script does
+- Region: `us-east-2`
+- AMI: `ami-08d19a1b7f569b848`
+- Trace bucket: `diya-simarena-traces`
+- Jobs/results bucket: `diya-simarena-jobs-664926621123-us-east-2-an`
+- Demo trace: `s3://diya-simarena-traces/demo/trace-mem-slight.msgpack`
 
-- Launches `N` EC2 instances from `ami-08d19a1b7f569b848` in `us-east-2`
-- Uses a configurable instance type, defaulting to `c6a.xlarge`
-- Uses `100 GB` `gp3` root storage
-- Applies both a naming convention and tags:
-  - `Name=sim-arena-worker-<run-id>-<worker-id>`
-  - `Project=sim-arena`
-  - `Role=worker`
-  - `SimArenaRunId=<run-id>`
-  - `WorkerId=<worker-id>`
-- Waits for the instances to reach `running` and, by default, EC2 `2/2` status checks
-- Optionally SSHes into each worker and creates or updates the `simkube` Kubernetes secret automatically
-- Writes a JSON inventory file with instance IDs, public/private IPs, DNS names, tags, and bootstrap status
-- Provides `list`, `stop`, and `terminate` commands for cleanup
+---
 
-## Human AWS setup before running the script
+## 2) AWS values you must confirm before launch
 
-These are the values a human needs to confirm once in AWS. The script uses them, but it does not guess them blindly.
+1. EC2 key pair name (example: `diya_simkube_key`)
+2. Security group ID (`sg-...`) with inbound SSH allowed from your machine
+3. Subnet ID (`subnet-...`) with public IP behavior you expect
+4. Instance count and type (`c6a.xlarge` has been used in recent runs)
 
-1. Confirm the region is `us-east-2`.
-2. Confirm the AMI is `ami-08d19a1b7f569b848` (`simkube-simarena-s3-ready-2026-03-08`).
-3. Confirm the EC2 key pair name (`diya_simkube_key` for Diya's account; substitute your own).
-4. Find the security group ID you want attached to every worker.
-   Use the EC2 console on the launch page or on `EC2 > Security Groups`.
-   The group must allow inbound SSH from your operator machine.
-5. Pick a subnet that assigns public IPv4 addresses if you want the controller script to bootstrap workers over SSH.
-   The safest approach is to pass `--subnet-id` explicitly instead of relying on the default subnet selection.
-6. Confirm the S3 bucket name for traces is `diya-simarena-traces`.
-   The current known-good trace path is `s3://diya-simarena-traces/demo/trace-mem-slight.msgpack`.
+---
 
-## Credentials
-
-Use standard boto3 credential resolution on the machine where you run the script:
-
-- `AWS_PROFILE=<profile>` if you use named credentials locally
-- or `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN`
-
-The script reads the resolved credentials from boto3 and pushes them into the `simkube` Kubernetes secret on each worker during bootstrap. Nothing should be hardcoded into the script.
-
-## Required local files
-
-- The repo checked out locally
-- The PEM file for the AWS key pair (e.g. `~/clinic_ACRL/diya_simkube_key.pem`; substitute your own).
-
-Pass `--ssh-key-path /path/to/your.pem` to the script. There is no hardcoded default path.
-
-## Launch command
-
-Example:
+## 3) Launch workers
 
 ```bash
 cd ~/clinic_ACRL/sim-arena
@@ -96,118 +51,178 @@ python ops/ec2_workers.py launch \
   --subnet-id subnet-REPLACE_ME
 ```
 
-Notes:
+What this gives you:
 
-- `--security-group-id` is required unless you instead use `--security-group-name`.
-- `--subnet-id` is strongly recommended because it makes public IP behavior explicit.
-- The script defaults to `100 GB gp3`, the SimArena AMI, SSH user `ubuntu`, and automatic `simkube` secret setup.
-- If you want to skip secret bootstrap temporarily, add `--no-bootstrap-secret`.
-- If you want a stable logical batch name, pass `--run-id`.
+- Tagged worker instances
+- `runs/ec2_workers/<run-id>.json` inventory file with instance IDs and IPs
+- Optional secret bootstrap for `simkube`
 
-## What gets generated
+---
 
-The launch command writes a JSON inventory file under:
+## 4) Mandatory worker preflight checks (run on every worker before jobs)
 
-```bash
-runs/ec2_workers/<run-id>.json
-```
-
-Example fields:
-
-```json
-{
-  "run_id": "20260324-220000",
-  "trace_bucket": "diya-simarena-traces",
-  "trace_path": "s3://diya-simarena-traces/demo/trace-mem-slight.msgpack",
-  "instances": [
-    {
-      "instance_id": "i-0123456789abcdef0",
-      "name": "sim-arena-worker-20260324-220000-01",
-      "public_ip": "18.123.45.67",
-      "private_ip": "172.31.10.25",
-      "bootstrap": {
-        "secret_applied": true,
-        "ssh_ready": true,
-        "error": null
-      }
-    }
-  ]
-}
-```
-
-This file is the machine list Person B can consume for job dispatch.
-
-## Smoke test
-
-For the immediate AWS provisioning check, use the narrow smoke-test path:
+Use this before starting `protocol/worker.py`. It prevents the exact stuck-run behavior seen previously.
 
 ```bash
-python ops/ec2_workers.py smoke-test \
-  --security-group-id sg-REPLACE_ME \
-  --subnet-id subnet-REPLACE_ME
+# On worker (SSH session)
+cd ~/work/sim-arena
+source .venv/bin/activate
+
+echo "=== KWOK and node health ==="
+kubectl get pods -A | egrep "kwok|controller|simkube" || true
+kubectl get nodes -o wide
+
+echo "=== Clear stale sims/processes ==="
+pkill -f "train.py.*--ns default" || true
+kubectl delete simulations.simkube.io --all -n default || true
+kubectl delete simulations.simkube.io --all -n virtual-default || true
+
+echo "=== Sanity observation ==="
+python runner/one_step.py \
+  --trace demo/trace-mem-slight.msgpack \
+  --ns default \
+  --deploy web \
+  --target 3 \
+  --duration 40 \
+  --agent greedy \
+  --reward shaped \
+  --log-level INFO
 ```
 
-Behavior:
+Healthy expectation:
 
-- launches `2` workers by default
-- waits for `instance_running`
-- captures instance IDs, IPs, states, and `run_id`
-- writes the normal inventory file
-- resolves the launched workers again from inventory
-- terminates them automatically unless `--keep-instances` is passed
+- `kwok-controller` is not CrashLooping
+- `kubectl get nodes` shows Ready
+- one-step finishes and prints an observation
 
-This intentionally does not require SSH bootstrap or remote workload execution, so it isolates the AWS multi-instance launch path.
+---
 
-## Listing workers later
-
-From the inventory file:
+## 5) Start worker daemons (each EC2)
 
 ```bash
-python ops/ec2_workers.py list --inventory-file runs/ec2_workers/<run-id>.json
+cd ~/work/sim-arena
+source .venv/bin/activate
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
+export AWS_REGION=us-east-2
+
+python protocol/worker.py
 ```
 
-From AWS tags only:
+Keep one terminal per worker so logs are visible.
+
+---
+
+## 6) Start sync server (controller machine)
 
 ```bash
-python ops/ec2_workers.py list --run-id <run-id> --region us-east-2
+cd ~/clinic_ACRL/sim-arena
+source .venv/bin/activate
+export JOBS_BUCKET=diya-simarena-jobs-664926621123-us-east-2-an
+export AWS_REGION=us-east-2
+
+python protocol/sync_server.py
 ```
 
-## Cleanup
+For federated runs, this process must remain alive during the full run.
 
-Terminate from the inventory file:
+---
+
+## 7) Dispatch multi-worker run
+
+Dispatch two jobs with the same federation group and `per_episode_s3_sync=true`.
+
+Checklist for manifests:
+
+- `federation_group_id` same for all workers in the batch
+- `federation_size` equals worker count
+- `episodes >= 2` if you want to prove round-2 used server/global weights
+- `timeout_seconds` high enough for your slowest cluster cycle
+
+---
+
+## 8) Live monitoring during run
+
+### 8.1 S3 sync paths
+
+Check whether each episode is progressing through barriers:
 
 ```bash
-python ops/ec2_workers.py terminate --inventory-file runs/ec2_workers/<run-id>.json
+aws s3 ls s3://$JOBS_BUCKET/results/_federation/<group-id>/ --recursive
 ```
 
-Terminate by tag lookup:
+Look for:
+
+- `from_worker/after_ep_0001/<worker-id>/checkpoint.pt`
+- `to_worker/before_ep_0002/global_weights.pt`
+
+### 8.2 Worker-level logs and artifacts
 
 ```bash
-python ops/ec2_workers.py terminate --run-id <run-id> --region us-east-2
+python protocol/inspect_run.py --list
+python protocol/inspect_run.py <job_id> --log
+python protocol/inspect_run.py <job_id> --ckpt
 ```
 
-Skip the confirmation prompt:
+For runs after the `steps.jsonl` upload change:
+
+```bash
+python protocol/inspect_run.py <job_id> --steps
+```
+
+---
+
+## 9) How to prove parallelization and weight handoff
+
+Use these three evidence types:
+
+1. **Concurrency proof**  
+   Two `job_id`s with overlapping timestamps in logs.
+
+2. **Federation barrier proof**  
+   S3 keys under `results/_federation/<group-id>/...` show both workers uploading `after_ep_0001` before a single `global_weights` is emitted for `before_ep_0002`.
+
+3. **Round-2 weight-load proof**  
+   Worker logs contain:
+   `Loading agent weights from .../server_weights_ep_0002.pt`
+
+---
+
+## 10) Failure patterns and quick actions
+
+- **All observations stuck (`ready=0, pending=3, total=3`) for every step**  
+  SimKube is not applying actions effectively. Check KWOK/controller health first.
+
+- **Repeated `Driver pod didn't enter Running state within 150s`**  
+  Cluster is degraded or delayed; do not trust training quality until fixed.
+
+- **`Timed out after 3600s` with `episodes_completed=0`**  
+  Job never completed episode 1. Increase timeout only after fixing cluster health.
+
+- **Action blocked by safeguards (memory > 32Gi)**  
+  Expected if agent proposes out-of-bounds action. Not fatal by itself.
+
+---
+
+## 11) Cleanup
+
+Terminate from inventory:
 
 ```bash
 python ops/ec2_workers.py terminate --inventory-file runs/ec2_workers/<run-id>.json --yes
 ```
 
-For debugging, you can stop instead of terminate:
+Stop (debugging only):
 
 ```bash
 python ops/ec2_workers.py stop --inventory-file runs/ec2_workers/<run-id>.json
 ```
 
-Terminate remains the recommended default for ephemeral workers, because stopped instances still keep volumes and can continue costing money.
+Terminate is preferred for cost control.
 
-## Relationship to the single-instance AMI guide
+---
 
-[docs/EC2_SETUP_FROM_SCRATCH.md](EC2_SETUP_FROM_SCRATCH.md) remains the source for understanding what the AMI contains and how a single worker behaves after login.
+## 12) Related docs
 
-This multi-worker runbook builds on that setup with:
-
-- batch launch automation
-- tagging and naming conventions
-- automatic `simkube` secret setup
-- machine inventory output for downstream orchestration
-- bulk stop and terminate operations
+- [docs/WORKER_PROTOCOL.md](WORKER_PROTOCOL.md)
+- [docs/EC2_SETUP_FROM_SCRATCH.md](EC2_SETUP_FROM_SCRATCH.md)
+- [TRAINING_SERVER_README.md](../TRAINING_SERVER_README.md)
