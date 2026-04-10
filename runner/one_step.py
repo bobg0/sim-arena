@@ -66,7 +66,7 @@ def wait_for_driver_ready(sim_name: str, timeout: int | None = None) -> bool:
         timeout = int(os.environ.get("SIM_ARENA_DRIVER_TIMEOUT", "60"))
     import subprocess
 
-    job_label = f"job-name=sk-{sim_name}-driver"
+    job_label = f"batch.kubernetes.io/job-name=sk-{sim_name}-driver"
     logger.info(f"Waiting for driver pod ({job_label}) to start to eliminate cluster lag...")
     start_time = time.time()
     
@@ -120,7 +120,7 @@ def wait_for_deployment(namespace: str, deploy: str, timeout: int | None = None)
     logger.warning(f"Deployment '{deploy}' not found within {timeout}s. Proceeding anyway.")
     return False
 
-def _get_node_data_dir(kind_cluster: str) -> Path:
+def _get_node_data_dir(kind_cluster = "cluster") -> Path:
     """Path where trace files must be placed for SimKube to read them at file:///data/
 
     Local:  kind worker mounts ~/.local/kind-node-data/<SIM_ARENA_KIND_CLUSTER> at /data.
@@ -130,8 +130,7 @@ def _get_node_data_dir(kind_cluster: str) -> Path:
     override = os.environ.get("SIM_ARENA_NODE_DATA_DIR")
     if override:
         return Path(override)
-    cluster_name = os.environ.get("SIM_ARENA_KIND_CLUSTER", "cluster")
-    return Path.home() / ".local" / "kind-node-data" / cluster_name
+    return Path.home() / ".local" / "kind-node-data" / kind_cluster
 
 # ---- Helper function to extract current resource state from trace ----
 def _extract_current_state(trace: list, deploy: str) -> dict:
@@ -283,14 +282,17 @@ def one_step(
         # NOTE: Clean up virtual namespace where SimKube creates pods.
         # Pass deploy so we wait for previous deployment cleanup (fixes step 5 404).
         logger.debug(f"Running pre_start hooks in {virtual_namespace}...")
-        run_hooks("pre_start", virtual_namespace, deploy=deploy)
+        run_hooks("pre_start", virtual_namespace)
         logger.debug("pre_start hooks completed.")
 
         # 1.5) Copy the input trace to the kind node data path (mounted at /data in the node).
         # For file:// traces this is required for the driver pod to read the trace.
         # For S3 traces the driver pod downloads directly, but we still set up node_data_dir
         # so the output trace can be copied there for use by subsequent steps.
-        node_data_dir = _get_node_data_dir("")  # arg unused; reads env vars internally
+        node_data_dir = _get_node_data_dir(kind_cluster = namespace)  
+        # Due to the speciaized nature of our envirionment, the real cluster name linked locally 
+        # has the same name as your simkube cluster and your namespace, so we can use the namespace 
+        # argument to determine the correct node data dir to copy to and read from.
         node_data_dir.mkdir(parents=True, exist_ok=True)
         if not cluster_trace_path.startswith("s3://"):
             dest_trace = node_data_dir / trace_filename
@@ -492,6 +494,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run one agent step")
     parser.add_argument("--trace", required=True, help="Input trace path")
     parser.add_argument("--ns", "--namespace", dest="namespace", required=True, help="Namespace")
+    # --ns is actually your simkube cluster name, in simkube namespace. it is an historical issue waiting for future cleanup.
     parser.add_argument("--deploy", required=True, help="Deployment name")
     parser.add_argument("--target", type=int, required=True, help="Target total pods")
     parser.add_argument("--duration", type=int, default=120, help="Duration in seconds")

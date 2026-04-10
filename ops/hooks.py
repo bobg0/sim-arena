@@ -70,6 +70,37 @@ class LocalHooks:
         
         self.core = client.CoreV1Api()
         self.custom = client.CustomObjectsApi()
+        self.adm = client.AdmissionregistrationV1Api() # Added for webhook cleanup
+        
+    def force_cleanup_simkube(self, namespace: str) -> None:
+        """Surgically bypasses SimKube controller bugs by manually cleaning stuck resources."""
+        logger.debug("Force-cleaning SimKube ghost resources...")
+        
+        # 1. Strip finalizers from stuck Simulation CRs so K8s can delete them
+        try:
+            sims = self.custom.list_namespaced_custom_object(
+                group="simkube.io", version="v1", namespace=namespace, plural="simulations"
+            )
+            for sim in sims.get("items", []):
+                name = sim["metadata"]["name"]
+                logger.debug(f"Removing finalizers from stuck simulation: {name}")
+                self.custom.patch_namespaced_custom_object(
+                    group="simkube.io", version="v1", namespace=namespace, plural="simulations",
+                    name=name, body={"metadata": {"finalizers": []}}
+                )
+        except ApiException as e:
+            if e.status != 404:
+                logger.warning(f"Failed to clear simulation finalizers: {e}")
+
+        # 2. Delete orphaned cluster-scoped Mutating Webhooks that crash the controller
+        try:
+            webhooks = self.adm.list_mutating_webhook_configuration()
+            for wh in webhooks.items:
+                if wh.metadata.name.startswith("sk-diag-"):
+                    logger.debug(f"Deleting orphaned webhook: {wh.metadata.name}")
+                    self.adm.delete_mutating_webhook_configuration(name=wh.metadata.name)
+        except ApiException as e:
+            logger.warning(f"Failed to clean webhooks: {e}")
     
     def delete_all_pods(self, namespace: str) -> int:
         """
@@ -126,6 +157,8 @@ class LocalHooks:
         to avoid race with SimKube (multi-step fix).
         """
         logger.debug(f"=== pre_start hook for namespace '{namespace}' ===")
+        self.force_cleanup_simkube(namespace)
+        self.force_cleanup_simkube("virtual-default")
         self.delete_all_pods(namespace)
         logger.debug("Waiting for Kubernetes to complete pod deletion (avoids race with SimKube)...")
         if wait_for_pods_terminated(namespace):
