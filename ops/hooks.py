@@ -98,9 +98,13 @@ class LocalHooks:
             for wh in webhooks.items:
                 if wh.metadata.name.startswith("sk-diag-"):
                     logger.debug(f"Deleting orphaned webhook: {wh.metadata.name}")
-                    self.adm.delete_mutating_webhook_configuration(name=wh.metadata.name)
+                    try:
+                        self.adm.delete_mutating_webhook_configuration(name=wh.metadata.name)
+                    except ApiException as e:
+                        if e.status != 404:
+                            logger.warning(f"Failed to clean webhook {wh.metadata.name}: {e}")
         except ApiException as e:
-            logger.warning(f"Failed to clean webhooks: {e}")
+            logger.warning(f"Failed to list webhooks: {e}")
     
     def delete_all_pods(self, namespace: str) -> int:
         """

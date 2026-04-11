@@ -28,6 +28,7 @@ import argparse
 import json
 import logging
 import sys
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -106,7 +107,8 @@ def main() -> int:
                         help="Override output directory")
     parser.add_argument("--log-level", type=str, default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-
+    parser.add_argument("--log-to-terminal", action="store_true",
+                        help="Print all logs to terminal (default: redirect logs to results folder)") 
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -150,6 +152,17 @@ def main() -> int:
         / f"{timestamp}_{args.provider}_{model_label.replace('/', '-')}"
     )
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- ADD LOG REDIRECTION ---
+    log_file = None
+    if not args.log_to_terminal:
+        log_file_path = results_dir / "benchmark.log"
+        log_file = open(log_file_path, "a", buffering=1)
+        print(f"Logs → {log_file_path}", flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(log_file.fileno(), sys.stdout.fileno())
+        os.dup2(log_file.fileno(), sys.stderr.fileno())
 
     with open(results_dir / "command.txt", "w") as f:
         f.write(" ".join(sys.argv) + "\n\n")
@@ -261,6 +274,9 @@ def main() -> int:
     logger.info(f"  avg reward: {report['avg_total_reward']}")
     logger.info(f"  results   : {results_dir}")
     logger.info("=" * 60)
+    
+    if log_file is not None:
+        log_file.close()
 
     return 0
 

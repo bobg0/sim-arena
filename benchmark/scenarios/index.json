@@ -5,45 +5,45 @@
       "name": "mem-slight",
       "trace": "demo/trace-mem-slight.msgpack",
       "target": 3,
-      "problem_type": "memory_only",
-      "failure_mode": "memory_only",
-      "severity": "slight",
+      "problem_type": "resource_contention",
+      "failure_mode": "memory_quota_exceeded",
+      "severity": "low",
       "initial_replicas": 3,
       "initial_cpu_m": 500,
       "initial_memory_gi": 33,
-      "description": "3 pods each requesting 33Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory requests to fit under the per-node limit."
+      "description": "3 pods each requesting 33Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory requests by a small margin (1 step) to fit under the per-node limit."
     },
     {
       "name": "mem-heavy",
       "trace": "demo/trace-mem-heavy.msgpack",
       "target": 3,
-      "problem_type": "memory_only",
-      "failure_mode": "memory_only",
-      "severity": "heavy",
+      "problem_type": "resource_contention",
+      "failure_mode": "memory_quota_exceeded",
+      "severity": "high",
       "initial_replicas": 3,
       "initial_cpu_m": 500,
       "initial_memory_gi": 40,
-      "description": "3 pods each requesting 40Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory multiple times (40Gi → 32Gi requires more than one step)."
+      "description": "3 pods each requesting 40Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory significantly, likely requiring multiple steps (40Gi → 32Gi)."
     },
     {
       "name": "cpu-slight",
       "trace": "demo/trace-cpu-slight.msgpack",
       "target": 3,
-      "problem_type": "cpu_only",
-      "failure_mode": "cpu_only",
-      "severity": "slight",
+      "problem_type": "resource_contention",
+      "failure_mode": "cpu_quota_exceeded",
+      "severity": "low",
       "initial_replicas": 3,
       "initial_cpu_m": 17000,
       "initial_memory_gi": 2,
-      "description": "3 pods each requesting 17000m CPU (51 cores total) on 16-CPU KWOK nodes — pods are unschedulable. Agent must reduce CPU requests below 16000m per pod."
+      "description": "3 pods each requesting 17000m CPU (51 cores total) on 16-CPU KWOK nodes — pods are unschedulable. Agent must reduce CPU requests slightly (below 16000m per pod)."
     },
     {
       "name": "cpu-heavy",
       "trace": "demo/trace-cpu-heavy.msgpack",
       "target": 3,
-      "problem_type": "cpu_only",
-      "failure_mode": "cpu_only",
-      "severity": "heavy",
+      "problem_type": "resource_contention",
+      "failure_mode": "cpu_quota_exceeded",
+      "severity": "high",
       "initial_replicas": 3,
       "initial_cpu_m": 20000,
       "initial_memory_gi": 2,
@@ -53,49 +53,49 @@
       "name": "cpu-mem-both",
       "trace": "demo/trace-cpu-mem.msgpack",
       "target": 3,
-      "problem_type": "cpu_and_memory",
-      "failure_mode": "cpu_and_memory",
+      "problem_type": "resource_contention",
+      "failure_mode": "cpu_and_memory_exceeded",
       "severity": "medium",
       "initial_replicas": 3,
       "initial_cpu_m": 17000,
       "initial_memory_gi": 33,
-      "description": "3 pods each over-requesting both CPU (17000m > 16 CPU/node) and memory (33Gi > 32Gi/node). Agent must reduce both dimensions independently to get pods scheduled."
+      "description": "3 pods over-requesting both CPU (17000m > 16 CPU) and memory (33Gi > 32Gi). Agent must address two independent dimensions correctly to get pods scheduled."
     },
     {
       "name": "replicas-over",
       "trace": "demo/trace-replicas-over.msgpack",
       "target": 3,
-      "problem_type": "replicas_only",
-      "failure_mode": "replicas_only",
-      "severity": "slight",
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_many_replicas",
+      "severity": "low",
       "initial_replicas": 5,
       "initial_cpu_m": 500,
-      "initial_memory_gi": 0,
-      "description": "5 replicas running when the target is 3 — pods schedule fine but replica count is wrong. Agent must issue a scale_down_replicas action to reach the target."
+      "initial_memory_gi": 0.5,
+      "description": "5 replicas running when the target is 3 — pods schedule fine but replica count is wrong. Agent must issue a scale_down action to shed 2 replicas."
     },
     {
       "name": "scale-up",
       "trace": "demo/trace-scaling.msgpack",
       "target": 3,
-      "problem_type": "scale_up",
-      "failure_mode": "under_provisioned",
-      "severity": "slight",
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_few_replicas",
+      "severity": "medium",
       "initial_replicas": 1,
       "initial_cpu_m": 250,
-      "initial_memory_gi": 0,
-      "description": "1 underprovisioned pod running when the target is 3. Agent must scale up replicas to reach the target of 3 ready pods."
+      "initial_memory_gi": 0.5,
+      "description": "1 underprovisioned pod running when the target is 3. Agent must scale up replicas by 2 to reach the required target."
     },
     {
       "name": "scale-up-v2",
       "trace": "demo/trace-scaling-v2.msgpack",
       "target": 3,
-      "problem_type": "scale_up",
-      "failure_mode": "under_provisioned",
-      "severity": "minimal",
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_few_replicas",
+      "severity": "low",
       "initial_replicas": 2,
       "initial_cpu_m": 250,
-      "initial_memory_gi": 0,
-      "description": "2 underprovisioned pods running when the target is 3. Agent must add one more replica to reach the target of 3 ready pods."
+      "initial_memory_gi": 0.5,
+      "description": "2 underprovisioned pods running when the target is 3. Agent must add exactly one replica."
     },
     {
       "name": "baseline-normalized",
@@ -106,8 +106,8 @@
       "severity": "none",
       "initial_replicas": 2,
       "initial_cpu_m": 500,
-      "initial_memory_gi": 0,
-      "description": "Healthy baseline: 2 replicas with well-within-limits resources (500m CPU, 512Mi memory). Used for local development and sanity-checking agent no-op behaviour."
+      "initial_memory_gi": 0.5,
+      "description": "Healthy baseline: 2 replicas with well-within-limits resources (500m CPU, 512Mi memory). Used for sanity-checking agent no-op behaviour."
     },
     {
       "name": "baseline-dev",
@@ -118,29 +118,44 @@
       "severity": "none",
       "initial_replicas": 2,
       "initial_cpu_m": 500,
-      "initial_memory_gi": 0,
-      "description": "Synthetic development trace: 2 replicas, 500m CPU, 512Mi memory, all in the 'default' namespace. Used for integration testing — observe() returns {ready: 2, pending: 0, total: 2} once pods start."
+      "initial_memory_gi": 0.5,
+      "description": "Synthetic development trace: 2 replicas, 500m CPU, 512Mi memory. Used for integration testing where observe() should immediately return an ideal state."
     },
     {
       "name": "replica-tiny-scale",
       "trace": "demo/traces/trace-0001.msgpack",
       "target": 3,
-      "problem_type": "tiny_scale",
-      "description": "3-replica deployment with possible resource insufficient."
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_few_replicas",
+      "severity": "low",
+      "initial_replicas": 2,
+      "initial_cpu_m": 500,
+      "initial_memory_gi": 0.5,
+      "description": "Agent must scale deployment from 2 to 3 replicas using default resources (500m CPU, 512Mi memory). Evaluates basic minimal scaling capability."
     },
     {
       "name": "replica-small-scale",
       "trace": "demo/traces/trace-0001.msgpack",
       "target": 5,
-      "problem_type": "small_scale",
-      "description": "5-replica deployment with possible resource insufficient."
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_few_replicas",
+      "severity": "medium",
+      "initial_replicas": 2,
+      "initial_cpu_m": 500,
+      "initial_memory_gi": 0.5,
+      "description": "Agent must scale deployment from 2 to 5 replicas using default resources (500m CPU, 512Mi memory). Evaluates moderate scaling jumps."
     },
     {
       "name": "replica-medium-scale",
       "trace": "demo/traces/trace-0001.msgpack",
       "target": 10,
-      "problem_type": "medium_scale",
-      "description": "10-replica deployment with possible resource insufficient."
+      "problem_type": "replica_scaling",
+      "failure_mode": "too_few_replicas",
+      "severity": "high",
+      "initial_replicas": 2,
+      "initial_cpu_m": 500,
+      "initial_memory_gi": 0.5,
+      "description": "Agent must scale deployment from 2 to 10 replicas using default resources. Evaluates significant scale-up behavior and whether the agent accurately stops at the target."
     }
   ]
 }
