@@ -2,17 +2,11 @@
 agent/providers/gemini_provider.py
 
 Google Gemini provider for the Sim-Arena LLM agent.
-
 Uses the current google-genai SDK (google.genai).
 Reads GEMINI_API_KEY from the environment (loaded from .env).
 
 Install:
     pip install google-genai
-
-Supported models:
-    gemini-2.0-flash          (fast, good for benchmarking — recommended)
-    gemini-2.5-flash-preview  (stronger reasoning)
-    gemini-2.5-pro-preview    (highest quality)
 """
 
 from __future__ import annotations
@@ -20,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -29,7 +25,9 @@ from agent import action_parser
 
 logger = logging.getLogger("providers.gemini")
 
-_DEFAULT_MODEL = "gemini-2.5-flash-lite"
+_DEFAULT_MODEL   = "gemini-2.5-flash-lite"
+_MAX_RETRIES     = 3
+_RETRY_DELAY_S   = 30   # seconds to wait after a 503
 
 
 class GeminiProvider(LLMProvider):
@@ -37,7 +35,7 @@ class GeminiProvider(LLMProvider):
     LLM provider backed by the Google Gemini API (google-genai SDK).
 
     Args:
-        model: Gemini model string (default: "gemini-2.0-flash")
+        model: Gemini model string (default: "gemini-2.5-flash-lite")
     """
 
     def __init__(self, model: str = _DEFAULT_MODEL) -> None:
@@ -62,8 +60,43 @@ class GeminiProvider(LLMProvider):
         anthropic_tools: list[dict],
         max_tool_rounds: int,
     ) -> StepResult:
-        """Run the Gemini function-calling loop for one agent step."""
+        """Run the Gemini function-calling loop with retry on 503."""
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                return self._run_step_once(
+                    system_prompt, user_message, mcp_client,
+                    anthropic_tools, max_tool_rounds,
+                )
+            except Exception as exc:
+                err_str = str(exc)
+                is_503  = "503" in err_str or "UNAVAILABLE" in err_str
+                is_429  = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
 
+                if (is_503 or is_429) and attempt < _MAX_RETRIES:
+                    wait = _RETRY_DELAY_S * attempt
+                    logger.warning(
+                        f"Gemini API transient error (attempt {attempt}/{_MAX_RETRIES}): "
+                        f"{err_str[:120]}. Retrying in {wait}s..."
+                    )
+                    time.sleep(wait)
+                    continue
+
+                # Non-retryable or exhausted retries — re-raise so benchmark
+                # can record the failure and move on to the next scenario.
+                raise
+
+        # Should never reach here
+        raise RuntimeError("Gemini provider: retry loop exited without result")
+
+    def _run_step_once(
+        self,
+        system_prompt:   str,
+        user_message:    str,
+        mcp_client,
+        anthropic_tools: list[dict],
+        max_tool_rounds: int,
+    ) -> StepResult:
+        """Single attempt at the Gemini function-calling loop."""
         gemini_tools = _convert_tools(anthropic_tools)
         config = types.GenerateContentConfig(
             system_instruction = system_prompt,
@@ -72,7 +105,6 @@ class GeminiProvider(LLMProvider):
             max_output_tokens  = 1024,
         )
 
-        # Conversation history — list of types.Content
         contents: list[types.Content] = [
             types.Content(
                 role  = "user",
@@ -102,7 +134,7 @@ class GeminiProvider(LLMProvider):
                     rounds          = round_idx,
                 )
 
-            # ---- tool call round cap -------------------------------------
+            # ---- tool call round cap ------------------------------------
             if round_idx >= max_tool_rounds:
                 logger.warning(
                     f"Gemini provider: hit max_tool_rounds ({max_tool_rounds}). "
@@ -114,7 +146,8 @@ class GeminiProvider(LLMProvider):
                         parts = [types.Part(text=(
                             "You have reached the maximum number of tool calls. "
                             "Based on what you have seen so far, respond NOW with "
-                            "your JSON action object and nothing else."
+                            "your JSON action object and nothing else.\n"
+                            '{"action_index": <0-6>, "reasoning": "<one sentence>"}'
                         ))],
                     )
                 )
@@ -132,16 +165,40 @@ class GeminiProvider(LLMProvider):
                     rounds          = round_idx + 1,
                 )
 
-            # ---- execute tool calls and add results to history -----------
-            # Append the model's response (with function calls) to history
+            # ---- execute tool calls — only accept the 4 MCP tools -------
             contents.append(response.candidates[0].content)
-
             fn_response_parts: list[types.Part] = []
+
+            valid_tool_names = {t["name"] for t in anthropic_tools}
+
             for fn_call in fn_calls:
                 tool_name = fn_call.name
                 tool_args = dict(fn_call.args)
-                tool_calls_made.append(tool_name)
 
+                if tool_name not in valid_tool_names:
+                    # LLM called an action name as a tool — reject it and
+                    # explain what happened so it corrects itself.
+                    logger.debug(
+                        f"Gemini tried to call non-tool '{tool_name}' — rejecting."
+                    )
+                    fn_response_parts.append(
+                        types.Part.from_function_response(
+                            name     = tool_name,
+                            response = {
+                                "error": (
+                                    f"'{tool_name}' is not a callable tool. "
+                                    "The only callable tools are: "
+                                    + ", ".join(sorted(valid_tool_names))
+                                    + ". To act, return JSON: "
+                                    '{"action_index": <0-6>, "reasoning": "..."}.'
+                                )
+                            },
+                        )
+                    )
+                    tool_calls_made.append(f"INVALID:{tool_name}")
+                    continue
+
+                tool_calls_made.append(tool_name)
                 logger.debug(f"Tool call: {tool_name}({tool_args})")
                 result_str = mcp_client.call_tool(tool_name, tool_args)
 
@@ -166,19 +223,10 @@ class GeminiProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
-# Tool schema conversion: Anthropic JSON Schema → Gemini types.Tool
+# Tool schema conversion
 # ---------------------------------------------------------------------------
 
 def _convert_tools(anthropic_tools: list[dict]) -> list[types.Tool]:
-    """
-    Convert Anthropic-format tool definitions to a Gemini types.Tool object.
-
-    Anthropic format:
-        {"name": str, "description": str, "input_schema": {JSON Schema}}
-
-    Gemini format:
-        types.Tool(function_declarations=[types.FunctionDeclaration(...)])
-    """
     fn_declarations = []
     for tool in anthropic_tools:
         fn_declarations.append(
@@ -192,34 +240,23 @@ def _convert_tools(anthropic_tools: list[dict]) -> list[types.Tool]:
 
 
 def _json_schema_to_gemini(schema: dict) -> types.Schema:
-    """
-    Recursively convert a JSON Schema dict to a types.Schema object.
-    Handles object, array, and scalar types.
-    """
     schema_type = schema.get("type", "object").upper()
-
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "type":        schema_type,
         "description": schema.get("description", ""),
     }
-
     if schema_type == "OBJECT":
         raw_props = schema.get("properties", {})
         if raw_props:
             kwargs["properties"] = {
-                k: _json_schema_to_gemini(v)
-                for k, v in raw_props.items()
+                k: _json_schema_to_gemini(v) for k, v in raw_props.items()
             }
         if "required" in schema:
             kwargs["required"] = schema["required"]
-
     elif schema_type == "ARRAY":
-        items = schema.get("items", {})
-        kwargs["items"] = _json_schema_to_gemini(items)
-
+        kwargs["items"] = _json_schema_to_gemini(schema.get("items", {}))
     elif schema_type == "STRING" and "enum" in schema:
         kwargs["enum"] = schema["enum"]
-
     return types.Schema(**kwargs)
 
 
@@ -228,17 +265,15 @@ def _json_schema_to_gemini(schema: dict) -> types.Schema:
 # ---------------------------------------------------------------------------
 
 def _extract_function_calls(response) -> list:
-    """Return all function_call parts from a Gemini response."""
     calls = []
     for candidate in response.candidates:
         for part in candidate.content.parts:
-            if part.function_call:
+            if part.function_call and part.function_call.name:
                 calls.append(part.function_call)
     return calls
 
 
 def _extract_text(response) -> str:
-    """Extract concatenated text from a Gemini response."""
     parts = []
     for candidate in response.candidates:
         for part in candidate.content.parts:

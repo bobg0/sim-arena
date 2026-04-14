@@ -123,7 +123,7 @@
     },
     {
       "name": "replica-tiny-scale",
-      "trace": "demo/traces/trace-0001.msgpack",
+      "trace": "demo/trace-0001.msgpack",
       "target": 3,
       "problem_type": "replica_scaling",
       "failure_mode": "too_few_replicas",
@@ -135,7 +135,7 @@
     },
     {
       "name": "replica-small-scale",
-      "trace": "demo/traces/trace-0001.msgpack",
+      "trace": "demo/trace-0001.msgpack",
       "target": 5,
       "problem_type": "replica_scaling",
       "failure_mode": "too_few_replicas",
@@ -147,7 +147,7 @@
     },
     {
       "name": "replica-medium-scale",
-      "trace": "demo/traces/trace-0001.msgpack",
+      "trace": "demo/trace-0001.msgpack",
       "target": 10,
       "problem_type": "replica_scaling",
       "failure_mode": "too_few_replicas",

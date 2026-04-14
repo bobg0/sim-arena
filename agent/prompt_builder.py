@@ -2,76 +2,86 @@
 agent/prompt_builder.py
 
 Converts a raw observation dict and benchmark scenario context into
-the system prompt and user message that are sent to the Anthropic API.
+the system prompt and user message sent to the LLM provider.
 
-Design principles:
-- The system prompt explains the task, action space, and output format ONCE.
-- The user message carries the current cluster state and step context.
-- The LLM is told it MAY call MCP tools before responding, and that it
-  MUST eventually return a JSON action object.
-- Action indices are kept consistent with ACTION_SPACE in runner/one_step.py.
+Key design decision: action names are NEVER mentioned in the system prompt.
+Only numeric indices are shown. This prevents Gemini's function-calling mode
+from pattern-matching action names to MCP tool calls.
 """
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Action space — must stay in sync with ACTION_SPACE in runner/one_step.py
-# ---------------------------------------------------------------------------
-
+# Action descriptions use only indices — NO action names that could be
+# mistaken for callable tools.
 ACTION_DESCRIPTIONS = {
-    0: "noop          — do nothing this step",
-    1: "bump_cpu      — increase CPU request by 500m",
-    2: "bump_mem      — increase memory request by 256Mi",
-    3: "scale_up      — add 1 replica",
-    4: "reduce_cpu    — decrease CPU request by 500m",
-    5: "reduce_mem    — decrease memory request by 256Mi",
-    6: "scale_down    — remove 1 replica",
+    0: "do nothing this step",
+    1: "increase CPU request by 500m",
+    2: "increase memory request by 256Mi",
+    3: "add 1 replica",
+    4: "decrease CPU request by 500m",
+    5: "decrease memory request by 256Mi",
+    6: "remove 1 replica",
 }
-
-# ---------------------------------------------------------------------------
-# System prompt (static, sent once per conversation)
-# ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
 You are an autonomous Kubernetes resource optimization agent.
-Your goal is to fix a resource problem in a running Kubernetes cluster so
-that the target number of pods become healthy (Ready and not Pending).
 
-You have access to four tools that let you inspect the live cluster state:
-  • get_pods(namespace)                            — pod phases and container states
-  • describe_deployment(namespace, deploy)         — current CPU/memory requests, replica counts
-  • get_events(namespace, deploy, last_n)          — recent Warning and Normal events
-  • get_pod_logs(namespace, pod_name, tail_lines)  — container log tail
+Your job is to reach a TARGET number of healthy (Ready, not Pending) pods.
 
-Workflow per step:
-1. Use the tools above (as many calls as you need) to understand the current
-   cluster state and the root cause of the resource problem.
-2. Once you have enough information, decide on exactly ONE action from the
-   action space below.
-3. Respond with ONLY a JSON object — no markdown, no explanation outside JSON.
+════════════════════════════════════════════════════
+PHASE 1 — INVESTIGATE
+════════════════════════════════════════════════════
+You have EXACTLY FOUR callable tools. These are the ONLY functions you may call:
+  • get_pods(namespace)
+  • describe_deployment(namespace, deploy)
+  • get_events(namespace, deploy, last_n)
+  • get_pod_logs(namespace, pod_name, tail_lines)
 
-Action space (use the integer index in your response):
-{action_space}
+Use them to understand why pods are failing or why the count differs from the TARGET.
 
-Output format (JSON only, nothing else):
+IMPORTANT: "desired replicas" in describe_deployment shows the CURRENT deployment
+configuration — it may differ from the benchmark TARGET. Your goal is to reach the
+TARGET, not to match the deployment's current desired count.
+
+════════════════════════════════════════════════════
+PHASE 2 — DECIDE
+════════════════════════════════════════════════════
+Choose ONE action index from this list.
+
+WARNING: These are NOT callable tools. Do NOT call them as functions.
+Return the index in JSON only.
+
+  0 — do nothing this step
+  1 — increase CPU request by 500m
+  2 — increase memory request by 256Mi
+  3 — add 1 replica
+  4 — decrease CPU request by 500m
+  5 — decrease memory request by 256Mi
+  6 — remove 1 replica
+
+════════════════════════════════════════════════════
+OUTPUT FORMAT — your final message must be ONLY this JSON
+════════════════════════════════════════════════════
 {{
-  "action_index": <integer 0-6>,
-  "reasoning": "<one sentence explaining why>"
+  "action_index": <integer 0–6>,
+  "reasoning": "<one sentence>"
 }}
 
-Constraints:
-- You MUST respond with valid JSON as your final message.
-- Choose action_index 0 (noop) if the cluster is already healthy or if
-  you are genuinely uncertain and want to observe before acting.
-- Do NOT over-allocate resources. Prefer the smallest change that could fix
-  the problem.
-- Resource safeguards are enforced server-side (CPU max 16000m, mem max 32Gi,
-  replicas max 100). Blocked actions are treated as noop and penalised.
+RULES:
+- Final response must be valid JSON, nothing else.
+- Do NOT call action indices as tool functions.
+- The four investigation tools above are the only callable functions.
+- If CPU/memory is already above node capacity, REDUCE it (don't increase).
+- Use action 3 (add replica) to scale up toward the TARGET.
+- Use action 6 (remove replica) to scale down toward the TARGET.
+- The TARGET shown in the user message is the authoritative goal, not what
+  describe_deployment shows as 'desired replicas'.
 """
 
-# ---------------------------------------------------------------------------
-# User message builder
-# ---------------------------------------------------------------------------
+
+def build_system_prompt() -> str:
+    return SYSTEM_PROMPT
+
 
 def build_user_message(
     obs:        dict,
@@ -82,31 +92,19 @@ def build_user_message(
     max_steps:  int,
     scenario_name: str = "",
 ) -> str:
-    """
-    Build the user-turn message for a single agent step.
-
-    Args:
-        obs:           Raw observation dict {"ready": int, "pending": int, "total": int}
-        target:        Target number of ready pods
-        namespace:     Kubernetes namespace (e.g. "virtual-default")
-        deploy:        Deployment name      (e.g. "web")
-        step_idx:      Current step index within the episode (0-based)
-        max_steps:     Maximum steps in the episode
-        scenario_name: Human-readable scenario label (optional)
-
-    Returns:
-        Formatted user message string.
-    """
     ready   = obs.get("ready",   0)
     pending = obs.get("pending", 0)
     total   = obs.get("total",   0)
     healthy = ready == target and pending == 0 and total == target
 
-    status_line = (
-        "✅ All pods are healthy — consider noop unless you want to reduce waste."
-        if healthy
-        else f"⚠️  {pending} pod(s) pending, {ready}/{target} ready."
-    )
+    if healthy:
+        status_line = "All pods are healthy and at target."
+    elif total > target:
+        status_line = f"TOO MANY pods: {total} running, target is {target}. Need to scale DOWN."
+    elif pending > 0:
+        status_line = f"{pending} pod(s) PENDING (cannot schedule). {ready}/{target} ready."
+    else:
+        status_line = f"TOO FEW pods: {total} running, target is {target}. Need to scale UP."
 
     scenario_line = f"Scenario: {scenario_name}\n" if scenario_name else ""
 
@@ -114,24 +112,16 @@ def build_user_message(
         f"{scenario_line}"
         f"Step {step_idx + 1}/{max_steps}\n"
         f"\n"
-        f"Current observation:\n"
-        f"  namespace : {namespace}\n"
-        f"  deployment: {deploy}\n"
-        f"  ready     : {ready}\n"
-        f"  pending   : {pending}\n"
-        f"  total     : {total}\n"
-        f"  target    : {target}\n"
+        f"━━━ CURRENT STATE ━━━\n"
+        f"  namespace  : {namespace}\n"
+        f"  deployment : {deploy}\n"
+        f"  ready pods : {ready}\n"
+        f"  pending    : {pending}\n"
+        f"  total      : {total}\n"
+        f"  *** TARGET : {target} ***\n"
         f"\n"
         f"Status: {status_line}\n"
         f"\n"
-        f"Use the available tools to investigate, then return your JSON action."
+        f"PHASE 1: Call get_pods / describe_deployment / get_events / get_pod_logs to investigate.\n"
+        f"PHASE 2: Return JSON with action_index (0-6). Do NOT call action indices as tools."
     )
-
-
-def build_system_prompt() -> str:
-    """Return the fully formatted system prompt with the action space embedded."""
-    action_space_str = "\n".join(
-        f"  {idx}: {desc}"
-        for idx, desc in ACTION_DESCRIPTIONS.items()
-    )
-    return SYSTEM_PROMPT.format(action_space=action_space_str)
