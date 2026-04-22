@@ -1,3 +1,4 @@
+import os
 import time
 import shutil
 import hashlib
@@ -149,6 +150,9 @@ class SimKubeEnv(gym.Env):
 
     def _run_simulation_and_observe(self, trace_path: str):
         """Helper to run the SimKube lifecycle and return the observation."""
+        filename = os.path.basename(trace_path)
+        container_trace_uri = f"file:///data/{filename}"
+
         sim_name = f"diag-{self._generate_id()}"
         trace_filename = Path(trace_path).name
         cluster_trace_path = f"file:///data/{trace_filename}"
@@ -164,12 +168,19 @@ class SimKubeEnv(gym.Env):
         # Execute Simulation
         sim_uid = None
         try:
+            # sim_uid = self.sim_env.create(
+            #     name=sim_name, trace_path=cluster_trace_path, 
+            #     duration_s=self.duration, namespace=self.namespace
+            # )
+            # wait_for_driver_ready(sim_name)
+            # self.sim_env.wait_fixed(self.duration)
+
             sim_uid = self.sim_env.create(
-                name=sim_name, trace_path=cluster_trace_path, 
-                duration_s=self.duration, namespace=self.namespace
-            )
-            wait_for_driver_ready(sim_name)
-            self.sim_env.wait_fixed(self.duration)
+            name=sim_name,                    # <- Re-added name
+            trace_path=container_trace_uri, 
+            duration_s=self.duration,         # <- Fixed duration_s
+            namespace=self.namespace
+        )
             
             # Smart Polling
             obs = None
