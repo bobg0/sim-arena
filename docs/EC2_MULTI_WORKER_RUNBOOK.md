@@ -1,4 +1,4 @@
-# SimArena Multi-Worker EC2 Runbook
+# ™™
 
 This is the operational playbook for running distributed/federated training across multiple EC2 workers and collecting evidence from each worker run.
 
@@ -50,6 +50,27 @@ python ops/ec2_workers.py launch \
   --security-group-id sg-REPLACE_ME \
   --subnet-id subnet-REPLACE_ME
 ```
+
+
+use ```
+aws ec2 describe-subnets --region us-east-2 --output table
+```
+# USE THE RIGHT REGION in your AWS console!!! 
+
+minor note on pem file permissions:
+```
+chmod 400 /home/bogao/.ssh/bob-s3-test-key.pem
+```
+
+to find the corresponding subnet and securityu group
+<!-- python ops/ec2_workers.py launch \
+  --count 2 \
+  --region us-east-2 \
+  --instance-type c6a.xlarge \
+  --key-name diya_simkube_key \
+  --ssh-key-path /home/bogao/.ssh/simkube-test-bob.pem\
+  --security-group-id sg-REPLACE_ME \
+  --subnet-id subnet-REPLACE_ME -->
 
 What this gives you:
 
