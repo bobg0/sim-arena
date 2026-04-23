@@ -25,9 +25,9 @@ from agent import action_parser
 
 logger = logging.getLogger("providers.gemini")
 
-_DEFAULT_MODEL   = "gemini-2.5-flash-lite"
+_DEFAULT_MODEL   = "gemini-2.5-flash"
 _MAX_RETRIES     = 3
-_RETRY_DELAY_S   = 30   # seconds to wait after a 503
+_RETRY_DELAY_S   = 60   # seconds to wait after a 503
 
 
 class GeminiProvider(LLMProvider):

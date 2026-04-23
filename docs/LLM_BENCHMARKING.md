@@ -9,7 +9,7 @@ LLM agents can query the Kubernetes cluster in real-time using MCP tools to gath
 ## Supported Providers
 
 - **Google Gemini**: `gemini-2.5-flash-lite` (default)
-- **Anthropic Claude**: `claude-sonnet-4-20250514`
+- **Anthropic Claude**: `claude-sonnet-4-6`
 
 ## Quick Start
 

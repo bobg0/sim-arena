@@ -29,7 +29,7 @@ class AnthropicProvider(LLMProvider):
         model: Anthropic model string, e.g. "claude-sonnet-4-20250514"
     """
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514") -> None:
+    def __init__(self, model: str = "claude-sonnet-4-6") -> None:
         self._model  = model
         self._client = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from env
 

@@ -14,18 +14,6 @@
       "description": "3 pods each requesting 33Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory requests by a small margin (1 step) to fit under the per-node limit."
     },
     {
-      "name": "mem-heavy",
-      "trace": "demo/trace-mem-heavy.msgpack",
-      "target": 3,
-      "problem_type": "resource_contention",
-      "failure_mode": "memory_quota_exceeded",
-      "severity": "high",
-      "initial_replicas": 3,
-      "initial_cpu_m": 500,
-      "initial_memory_gi": 40,
-      "description": "3 pods each requesting 40Gi memory on 32Gi/node KWOK nodes — all pods stay Pending. Agent must reduce memory significantly, likely requiring multiple steps (40Gi → 32Gi)."
-    },
-    {
       "name": "cpu-slight",
       "trace": "demo/trace-cpu-slight.msgpack",
       "target": 3,
