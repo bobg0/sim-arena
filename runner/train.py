@@ -232,6 +232,8 @@ def main():
             # PATH A: GYMNASIUM LOOP
             # ----------------------------------------------------
             if args.gym:
+                logger.info(f"Starting episode: max_steps={args.steps}, trace={trace_path}, agent={args.agent}, updates_per_step={args.updates_per_step}")
+                
                 gym_env = gym.make(
                     "SimKube-v0",
                     initial_trace_path=trace_path,
@@ -250,6 +252,9 @@ def main():
                 ep_start_time = time.time()
                 
                 while not done:
+                    logger.info(f"--- Processing State {step} ---")
+                    logger.debug(f"Using trace: {trace_path}")
+                    
                     step += 1
                     
                     if args.agent == "dqn":
@@ -271,6 +276,19 @@ def main():
                         )
                     elif args.agent == "greedy":
                         agent.update(action, reward)
+
+                    logger.info(f"Step Summary: action={action}, reward={reward}")
+
+                    # --- Injected Logging ---
+                    if terminated:
+                        logger.info(f"🎯 Target state reached at State {step}! Terminating episode early.")
+                    
+                    if args.min_return is not None and total_reward < args.min_return:
+                        logger.info(f"📉 Total return ({total_reward}) dropped below minimum threshold ({args.min_return}). Terminating episode early.")
+                    
+                    if truncated:
+                        logger.info(f"⏳ Max steps ({args.steps}) reached. Terminating episode early.")
+                    # ------------------------
                         
                     state = next_state
 
@@ -282,10 +300,19 @@ def main():
                     agent.current_episode_reward = 0.0
                 
                 ep_elapsed = time.time() - ep_start_time
+                
+                # --- Injected End of Episode Block ---
+                logger.info("=" * 60)
+                logger.info("Episode completed")
+                logger.info(f"States evaluated: {step}")
+                logger.info(f"Total reward: {total_reward}")
+                logger.info(f"Elapsed time: {ep_elapsed:.2f}s")
+                logger.info("=" * 60)
+                # -------------------------------------
+                
                 logger.info(f"Gym Episode {ep:03d}/{args.episodes} | Steps: {step} | Reward: {total_reward:.2f} | Target Reached: {terminated} | Time: {ep_elapsed:.1f}s")
                 
                 result = {"status": 0} # Fake success to keep loop moving
-
             # ----------------------------------------------------
             # PATH B: LEGACY RUN_EPISODE LOOP
             # ----------------------------------------------------

@@ -23,14 +23,14 @@ from env.actions.ops import (
     reduce_mem_small, scale_up_replicas, scale_down_replicas
 )
 from runner.safeguards import validate_action
-from runner.one_step import wait_for_driver_ready, _get_node_data_dir, _extract_current_state
+from runner.one_step import wait_for_driver_ready, wait_for_deployment, _get_node_data_dir, _extract_current_state
 
 logger = logging.getLogger("SimKubeEnv")
 
 class SimKubeEnv(gym.Env):
     """Custom Environment that follows gym interface for SimKube."""
     
-    etadata = {"render_modes": ["console"], "render_fps": 1}
+    metadata = {"render_modes": ["console"], "render_fps": 1}
 
     def __init__(self, 
                  initial_trace_path: str,
@@ -167,21 +167,25 @@ class SimKubeEnv(gym.Env):
 
         # Execute Simulation
         sim_uid = None
+        sim_start = time.time()  # Track when we created the CR
+        
         try:
-            # sim_uid = self.sim_env.create(
-            #     name=sim_name, trace_path=cluster_trace_path, 
-            #     duration_s=self.duration, namespace=self.namespace
-            # )
-            # wait_for_driver_ready(sim_name)
-            # self.sim_env.wait_fixed(self.duration)
-
             sim_uid = self.sim_env.create(
-            name=sim_name,                    # <- Re-added name
-            trace_path=container_trace_uri, 
-            duration_s=self.duration,         # <- Fixed duration_s
-            namespace=self.namespace
-        )
+                name=sim_name,                    
+                trace_path=container_trace_uri, 
+                duration_s=self.duration,         
+                namespace=self.namespace
+            )
             
+            wait_for_driver_ready(sim_name)
+            wait_for_deployment(self.virtual_namespace, self.deploy)
+            
+            elapsed = time.time() - sim_start
+            remaining = max(5, self.duration - elapsed)
+            logger.info(f"Waiting {remaining:.0f}s (of {self.duration}s window, {elapsed:.0f}s elapsed)...")
+            self.sim_env.wait_fixed(int(remaining))
+            # --------------------------------------
+
             # Smart Polling
             obs = None
             for _ in range(8): 
@@ -194,7 +198,7 @@ class SimKubeEnv(gym.Env):
                 time.sleep(2)
 
             if self.obs_noise_scale > 0 and obs is not None:
-                obs = add_obs_noise(obs, self.obs_noise_scale, rng=np.random.default_rng())
+                obs = add_obs_noise(obs, self.obs_noise_scale, rng=self.np_random)
             
             try:
                 resources = current_requests(self.virtual_namespace, self.deploy)
